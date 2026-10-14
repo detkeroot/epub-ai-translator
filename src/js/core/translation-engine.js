@@ -39,7 +39,7 @@ var TranslationEngine = (function() {
             if (!providerConfig) {
                 throw new Error('Provider not found: ' + this.provider);
             }
-
+            this.providerConfig = providerConfig;
             var handlerName = providerConfig.handlerClass;
             this.apiHandler = ApiHandlers.createHandler(handlerName, this);
             this.apiHandler.setup(this.apiKey);

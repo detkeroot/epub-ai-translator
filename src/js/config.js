@@ -22,36 +22,182 @@ var AppConfig = (function() {
                 resetMinute: 1
             },
             models: {
+                "Gemini 3.8 Flash": {
+                    id: "gemini-3.8-flash",
+                    rpm: 5,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
+                    maxOutputTokens: 65536,
+                    minThinkingBudget: "minimal"
+                },
+                "Gemini 3.7 Flash": {
+                    id: "gemini-3.7-flash",
+                    rpm: 5,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
+                    maxOutputTokens: 65536,
+                    minThinkingBudget: "minimal"
+                },
+                "Gemini 3.6 Flash": {
+                    id: "gemini-3.6-flash",
+                    rpm: 5,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
+                    maxOutputTokens: 65536,
+                    minThinkingBudget: "minimal"
+                },
+                "Gemini 3.5 Flash-Lite": {
+                    id: "gemini-3.5-flash-lite",
+                    rpm: 15,
+                    needsChunking: true,
+                    maxConcurrentRequests: 15,
+                    maxOutputTokens: 65536,
+                    minThinkingBudget: "minimal"
+                },
+                "Gemini 3.5 Flash": {
+                    id: "gemini-3.5-flash",
+                    rpm: 5,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
+                    maxOutputTokens: 32768,
+                    minThinkingBudget: "minimal"
+                },
+                "Gemini 3.1 Flash-Lite": {
+                    id: "gemini-3.1-flash-lite-preview",
+                    rpm: 15,
+                    needsChunking: true,
+                    maxConcurrentRequests: 15,
+                    maxOutputTokens: 32000,
+                    minThinkingBudget: -1
+                },
                 "Gemini 3.0 Flash Preview": {
                     id: "gemini-3-flash-preview",
                     rpm: 5,
                     needsChunking: true,
                     maxConcurrentRequests: 10,
                     maxOutputTokens: 32768,
-                    minThinkingBudget: 1024
+                    minThinkingBudget: "minimal"
+                },
+                "Gemini 3.1 Pro Preview": {
+                    id: "gemini-3.1-pro-preview",
+                    rpm: 2,
+                    needsChunking: true,
+                    maxConcurrentRequests: 5,
+                    maxOutputTokens: 32768,
+                    minThinkingBudget: "low"
+                },
+                "Gemini 3.0 Pro Preview": {
+                    id: "gemini-3.0-pro-preview",
+                    rpm: 2,
+                    needsChunking: true,
+                    maxConcurrentRequests: 5,
+                    maxOutputTokens: 32768,
+                    minThinkingBudget: "low"
                 },
                 "Gemini 2.5 Flash": {
                     id: "gemini-2.5-flash",
                     rpm: 5,
                     needsChunking: true,
                     maxConcurrentRequests: 10,
-                    maxOutputTokens: 16384,
-                    minThinkingBudget: 1638
+                    maxOutputTokens: 32768,
+                    minThinkingBudget: -1
                 },
                 "Gemini 2.5 Pro": {
-                    id: "gemini-2.5-pro-preview-06-05",
-                    rpm: 5,
+                    id: "gemini-2.5-pro",
+                    rpm: 2,
                     needsChunking: true,
                     maxConcurrentRequests: 5,
-                    maxOutputTokens: 65536,
-                    minThinkingBudget: 1024
+                    maxOutputTokens: 32768,
+                    minThinkingBudget: 768
+                },
+                "Gemini 2.5 Flash-Lite": {
+                    id: "gemini-2.5-flash-lite",
+                    rpm: 10,
+                    needsChunking: true,
+                    maxConcurrentRequests: 15,
+                    maxOutputTokens: 16384,
+                    minThinkingBudget: -1
                 },
                 "Gemini 2.0 Flash": {
                     id: "gemini-2.0-flash",
                     rpm: 10,
                     needsChunking: true,
                     maxConcurrentRequests: 10,
+                    maxOutputTokens: 16384
+                },
+                "Gemma 4 31B Instruct": {
+                    id: "gemma-4-31b-it",
+                    rpm: 2,
+                    needsChunking: true,
+                    maxConcurrentRequests: 15,
+                    maxOutputTokens: 8192,
+                    minThinkingBudget: "minimal"
+                },
+                "Gemma 4 26B": {
+                    id: "gemma-4-26b-a4b-it",
+                    rpm: 15,
+                    needsChunking: true,
+                    maxConcurrentRequests: 15,
+                    maxOutputTokens: 128000
+                }
+            }
+        },
+        deepseek: {
+            displayName: "DeepSeek API",
+            handlerClass: "OpenRouterApiHandler",
+            isAsync: true,
+            fileSuffix: "_translated_dp.html",
+            sharedRequestCounter: false,
+            baseUrl: "https://api.deepseek.com/chat/completions",
+            resetPolicy: {
+                type: "rolling",
+                durationHours: 24
+            },
+            models: {
+                "DeepSeek V4 Flash NonThink": {
+                    id: "deepseek-v4-flash",
+                    rpm: 60,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
+                    maxOutputTokens: 384000
+                },
+                "DeepSeek V4 Flash Think": {
+                    id: "deepseek-v4-flash",
+                    rpm: 60,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
+                    maxOutputTokens: 384000,
+                    minThinkingBudget: "high"
+                },
+                "DeepSeek V4 Pro NonThink": {
+                    id: "deepseek-v4-pro",
+                    rpm: 60,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
+                    maxOutputTokens: 384000
+                },
+                "DeepSeek V4 Pro Think": {
+                    id: "deepseek-v4-pro",
+                    rpm: 60,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
+                    maxOutputTokens: 384000,
+                    minThinkingBudget: "high"
+                },
+                "deepseek-chat NonThink": {
+                    id: "deepseek-chat",
+                    rpm: 60,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
                     maxOutputTokens: 8192
+                },
+                "deepseek-reasoner Think": {
+                    id: "deepseek-reasoner",
+                    rpm: 30,
+                    needsChunking: true,
+                    maxConcurrentRequests: 5,
+                    maxOutputTokens: 64000,
+                    minThinkingBudget: "high"
                 }
             }
         },
@@ -67,26 +213,131 @@ var AppConfig = (function() {
                 durationHours: 24
             },
             models: {
+                "Gemini 2.0 Flash Exp (Free)": {
+                    id: "google/gemini-2.0-flash-exp:free",
+                    rpm: 20,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
+                    maxOutputTokens: 15000
+                },
+                "Xiaomi MiMo-V2-Flash (Free)": {
+                    id: "xiaomi/mimo-v2-flash:free",
+                    rpm: 20,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
+                    maxOutputTokens: 15000
+                },
+                "Qwen3 Coder 480B (Free)": {
+                    id: "qwen/qwen3-coder:free",
+                    rpm: 20,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
+                    maxOutputTokens: 15000
+                },
+                "DeepSeek V3.1 Nex N1 (Free)": {
+                    id: "nex-agi/deepseek-v3.1-nex-n1:free",
+                    rpm: 20,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
+                    maxOutputTokens: 15000
+                },
+                "DeepSeek R1T2 Chimera (Free)": {
+                    id: "tngtech/deepseek-r1t2-chimera:free",
+                    rpm: 20,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
+                    maxOutputTokens: 7500
+                },
+                "OpenAI GPT OSS 120B (Free)": {
+                    id: "openai/gpt-oss-120b:free",
+                    rpm: 20,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
+                    maxOutputTokens: 7500
+                },
+                "GLM-4.5 Air (Free)": {
+                    id: "z-ai/glm-4.5-air:free",
+                    rpm: 20,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
+                    maxOutputTokens: 7500
+                },
+                "Google Gemma 3 27B (Free)": {
+                    id: "google/gemma-3-27b-it:free",
+                    rpm: 20,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
+                    maxOutputTokens: 7500
+                },
                 "DeepSeek V3 (Free)": {
                     id: "deepseek/deepseek-chat-v3-0324:free",
                     rpm: 20,
                     needsChunking: true,
-                    maxConcurrentRequests: 5,
+                    maxConcurrentRequests: 10,
+                    maxOutputTokens: 8192
+                },
+                "Claude 3.7 Sonnet": {
+                    id: "anthropic/claude-3.7-sonnet",
+                    rpm: 50,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
                     maxOutputTokens: 8192
                 },
                 "Claude 3.5 Sonnet": {
                     id: "anthropic/claude-3.5-sonnet",
                     rpm: 50,
                     needsChunking: true,
-                    maxConcurrentRequests: 5,
+                    maxConcurrentRequests: 10,
                     maxOutputTokens: 8192
                 },
                 "GPT-4o": {
                     id: "openai/gpt-4o",
                     rpm: 50,
                     needsChunking: true,
-                    maxConcurrentRequests: 5,
+                    maxConcurrentRequests: 10,
                     maxOutputTokens: 16384
+                }
+            }
+        },
+        omniroute: {
+            displayName: "OmniRoute (Шлюз :20128)",
+            handlerClass: "OpenRouterApiHandler",
+            isAsync: true,
+            fileSuffix: "_omniroute.html",
+            sharedRequestCounter: true,
+            baseUrl: "http://127.0.0.1:20128/v1/chat/completions",
+            resetPolicy: {
+                type: "rolling",
+                durationHours: 24
+            },
+            models: {
+                "OmniRoute Auto": {
+                    id: "auto",
+                    rpm: 60,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
+                    maxOutputTokens: 32768
+                },
+                "OmniRoute Auto (Качество)": {
+                    id: "auto/smart",
+                    rpm: 60,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
+                    maxOutputTokens: 32768
+                },
+                "OmniRoute Auto (Быстро)": {
+                    id: "auto/fast",
+                    rpm: 60,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
+                    maxOutputTokens: 32768
+                },
+                "OmniRoute Auto (Дешевле)": {
+                    id: "auto/cheap",
+                    rpm: 60,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
+                    maxOutputTokens: 32768
                 }
             }
         },
@@ -115,6 +366,13 @@ var AppConfig = (function() {
                     needsChunking: true,
                     maxConcurrentRequests: 10,
                     maxOutputTokens: 4096
+                },
+                "GLM-4.5 Air": {
+                    id: "glm-4.5-air",
+                    rpm: 20,
+                    needsChunking: true,
+                    maxConcurrentRequests: 10,
+                    maxOutputTokens: 8192
                 }
             }
         },
@@ -561,7 +819,7 @@ var AppConfig = (function() {
 
         // Получить дефолтную модель
         getDefaultModel: function() {
-            return "Gemini 3.0 Flash Preview";
+            return "Gemini 3.8 Flash";
         },
 
         // Получить дефолтного провайдера

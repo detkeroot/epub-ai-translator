@@ -20,6 +20,7 @@ var UIManager = (function() {
         
         // Сначала загружаем настройки
         try {
+            populateProviders();
             loadSavedSettings();
             updateProviderModels();
             updateGlossaryList();
@@ -501,6 +502,24 @@ var UIManager = (function() {
     /**
      * Обновление списка моделей провайдера
      */
+    function populateProviders() {
+        if (!elements.apiProvider) return;
+        var providers = AppConfig.getVisibleProviders();
+        var currentVal = elements.apiProvider.value;
+        elements.apiProvider.innerHTML = '';
+        for (var id in providers) {
+            var opt = document.createElement('option');
+            opt.value = id;
+            opt.textContent = providers[id].displayName || id;
+            elements.apiProvider.appendChild(opt);
+        }
+        if (currentVal && providers[currentVal]) {
+            elements.apiProvider.value = currentVal;
+        } else {
+            elements.apiProvider.value = AppConfig.getDefaultProvider();
+        }
+    }
+
     function updateProviderModels() {
         var providerId = elements.apiProvider.value;
         var models = AppConfig.getModelsForProvider(providerId);
@@ -529,7 +548,7 @@ var UIManager = (function() {
         var modelConfig = AppConfig.getModelConfig(providerId, modelName);
 
         // Показываем опции thinking только для моделей, которые это поддерживают
-        var supportsThinking = modelConfig && modelConfig.minThinkingBudget;
+        var supportsThinking = Boolean(modelConfig && modelConfig.minThinkingBudget !== false && modelConfig.minThinkingBudget !== undefined);
 
         elements.thinkingOptions.style.display = supportsThinking ? 'block' : 'none';
 

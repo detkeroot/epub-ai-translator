@@ -506,9 +506,17 @@ var TokenCounter = (function() {
      */
     function estimateCost(inputTokens, outputTokens, modelName) {
         var pricing = {
+            'gemini-3.8-flash': { input: 0.000025, output: 0.0001 },
+            'gemini-3.7-flash': { input: 0.000025, output: 0.0001 },
+            'gemini-3.6-flash': { input: 0.000025, output: 0.0001 },
+            'gemini-3.5-flash': { input: 0.000025, output: 0.0001 },
+            'gemini-3.1-pro': { input: 0.00025, output: 0.001 },
+            'gemini-3.0-pro': { input: 0.00025, output: 0.001 },
             'gemini-2.5-pro': { input: 0.00025, output: 0.001 },
             'gemini-2.5-flash': { input: 0.000025, output: 0.0001 },
-            'gemini-2.0-flash': { input: 0.000015, output: 0.00006 }
+            'gemini-2.0-flash': { input: 0.000015, output: 0.00006 },
+            'deepseek-v4': { input: 0.000014, output: 0.000028 },
+            'deepseek-chat': { input: 0.000014, output: 0.000028 }
         };
 
         var modelKey = 'gemini-2.5-pro';

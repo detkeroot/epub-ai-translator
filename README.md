@@ -20,9 +20,11 @@
   - **Принцип Бета (Синтаксический стандарт):** строгое разграничение *Звука* (произнесенная речь оформляется через длинное тире `—`) и *Тишины* (мысли, цитаты, надписи оформляются в кавычки-«ёлочки» `«»`);
   - **Принцип Гамма (Техническая сохранность):** неприкосновенность каркасных XHTML-тегов, классов и служебных атрибутов.
 - **Поддержка ведущих AI-провайдеров:**
-  - **Google Gemini:** прямые вызовы REST API `generativelanguage.googleapis.com` (поддержка `gemini-3.0-flash`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.0-flash` и Thinking Mode с настройкой бюджета рассуждений);
-  - **OpenRouter:** доступ к DeepSeek V3, Claude 3.5 Sonnet, GPT-4o;
-  - **ZhipuAI (GLM-4):** поддержка моделей `glm-4-plus` и `glm-4-flash` с клиентской генерацией JWT-токенов;
+  - **Google Gemini:** прямые вызовы REST API `generativelanguage.googleapis.com` (полная синхронизация с `translatorFork_MOD`: актуальная линейка **Gemini 3.8 Flash, 3.7 Flash, 3.6 Flash, 3.5 Flash-Lite, 3.5 Flash, 3.1 Flash-Lite, 3.1 Pro Preview, 3.0 Pro, 2.5 Pro, 2.5 Flash, Gemma 4 31B/26B** и нативная поддержка Thinking Config);
+  - **DeepSeek API:** официальный эндпоинт `api.deepseek.com` (DeepSeek V4 Flash NonThink/Think, DeepSeek V4 Pro, deepseek-chat, deepseek-reasoner);
+  - **OpenRouter:** доступ к бесплатному пулу (Gemini 2.0 Flash Exp, MiMo-V2-Flash, Qwen3 Coder 480B, DeepSeek V3.1 Nex, Chimera, GPT OSS 120B, GLM-4.5 Air, Gemma 3 27B) и топовым Claude 3.7 / 3.5 Sonnet, GPT-4o;
+  - **OmniRoute:** поддержка локального AI-шлюза (`http://127.0.0.1:20128/v1`) с профилями Auto, Quality, Fast, Cheap;
+  - **ZhipuAI (GLM-4):** поддержка моделей `glm-4-plus`, `glm-4-flash`, `glm-4.5-air` с клиентской генерацией JWT-токенов;
   - **Dry Run (Предпросмотр):** офлайн-просмотр готового сгенерированного промпта с подставленным чанком и терминами без отправки запроса и траты квот.
 - **Интеллектуальный чанкинг и защита верстки:**
   - Автоматическое разбиение глав на смысловые фрагменты по тегам `<p>` и `<div>` без разрезания фраз;

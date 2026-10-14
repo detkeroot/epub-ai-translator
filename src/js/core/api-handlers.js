@@ -164,19 +164,25 @@ var ApiHandlers = (function() {
             generationConfig.maxOutputTokens = Math.floor(maxTokens * 0.98);
         }
 
-        // Thinking config for models that support it (Gemini 2.0 Thinking/Pro)
-        if (this.worker.modelConfig.minThinkingBudget && this.worker.thinkingEnabled) {
-            var thinkingBudget = this.worker.thinkingBudget;
-            if (thinkingBudget === -1) {
-                // Default thinking budget - about 10% of output tokens
-                var maxOut = this.worker.modelConfig.maxOutputTokens || 8192;
-                thinkingBudget = Math.max(this.worker.modelConfig.minThinkingBudget, Math.floor(maxOut * 0.1));
+        // Thinking config for models that support it (Gemini 2.5 / 3.x Flash & Pro)
+        var minBudgetCfg = this.worker.modelConfig.minThinkingBudget;
+        if (minBudgetCfg !== false && minBudgetCfg !== undefined) {
+            if (typeof minBudgetCfg === 'string') {
+                var level = (this.worker.thinkingEnabled && this.worker.thinkingLevel) ? this.worker.thinkingLevel : minBudgetCfg;
+                generationConfig.thinkingConfig = {
+                    thinkingLevel: String(level).toUpperCase()
+                };
+            } else if (this.worker.thinkingEnabled) {
+                var thinkingBudget = this.worker.thinkingBudget;
+                if (thinkingBudget === -1 || thinkingBudget === undefined) {
+                    thinkingBudget = typeof minBudgetCfg === 'number' && minBudgetCfg > 0 ? minBudgetCfg : 1024;
+                }
+                if (thinkingBudget > 0) {
+                    generationConfig.thinkingConfig = {
+                        thinkingBudget: thinkingBudget
+                    };
+                }
             }
-            
-            generationConfig.thinking_config = {
-                include_thoughts: true,
-                thinking_budget: thinkingBudget
-            };
         }
 
         var payload = {
@@ -280,7 +286,7 @@ var ApiHandlers = (function() {
         var self = this;
         var allowIncomplete = options.allowIncomplete || false;
 
-        var baseUrl = 'https://openrouter.ai/api/v1/chat/completions';
+        var baseUrl = (this.worker.providerConfig && this.worker.providerConfig.baseUrl) || 'https://openrouter.ai/api/v1/chat/completions';
 
         var messages = [];
         if (this.worker.systemInstruction) {
