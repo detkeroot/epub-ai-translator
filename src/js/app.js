@@ -19,13 +19,10 @@ var App = (function() {
 
         console.log('EPUB AI Translator initializing...');
 
-        // Ждем загрузки JSZip с CDN
+        // Предупреждение если JSZip еще не подгрузился (не блокирует инициализацию UI)
         if (typeof JSZip === 'undefined') {
-            console.log('Waiting for JSZip to load...');
-            setTimeout(init, 100);
-            return;
+            console.warn('JSZip library is not yet loaded. EPUB handling will be available once loaded.');
         }
-
         // Проверка зависимостей
         if (!checkDependencies()) {
             console.error('Missing dependencies');
@@ -75,7 +72,7 @@ var App = (function() {
         var missing = [];
 
         if (typeof JSZip === 'undefined') {
-            missing.push('JSZip');
+            console.warn('JSZip is not yet available; EPUB import/export will require it.');
         }
 
         if (typeof EventBus === 'undefined') {
@@ -199,7 +196,11 @@ var App = (function() {
     };
 })();
 
-// Автоматическая инициализация при загрузке DOM
-document.addEventListener('DOMContentLoaded', function() {
+// Автоматическая инициализация при загрузке DOM с защитой от race condition
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() {
+        App.init();
+    });
+} else {
     App.init();
-});
+}

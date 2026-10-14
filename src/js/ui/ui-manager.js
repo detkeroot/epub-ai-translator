@@ -44,10 +44,19 @@ var UIManager = (function() {
         }
 
         // Инициализируем мобильное отображение
-        if (window.innerWidth <= 768) {
-            switchMobilePanel('left');
-        }
+        switchMobilePanel('left');
 
+        // Адаптивный ресайз: на десктопе сбрасываем inline-стили display
+        window.addEventListener('resize', function() {
+            if (window.innerWidth <= 768) {
+                var activeTab = document.querySelector('.mobile-panel-tab.active');
+                switchMobilePanel(activeTab ? activeTab.dataset.panel : 'left');
+            } else {
+                if (elements.panelLeft) elements.panelLeft.style.display = '';
+                if (elements.panelCenter) elements.panelCenter.style.display = '';
+                if (elements.panelRight) elements.panelRight.style.display = '';
+            }
+        });
         // Привязываем события в конце
         bindEvents();
 
@@ -521,16 +530,34 @@ var UIManager = (function() {
     }
 
     function updateProviderModels() {
+        if (!elements.apiProvider || !elements.apiModel) return;
         var providerId = elements.apiProvider.value;
+        if (!providerId) {
+            providerId = AppConfig.getDefaultProvider();
+            elements.apiProvider.value = providerId;
+        }
         var models = AppConfig.getModelsForProvider(providerId);
 
         elements.apiModel.innerHTML = '';
+
+        var defaultModel = AppConfig.getDefaultModel();
+        var selectedSet = false;
 
         for (var modelName in models) {
             var option = document.createElement('option');
             option.value = modelName;
             option.textContent = modelName;
+            if (modelName === defaultModel) {
+                option.selected = true;
+                selectedSet = true;
+            }
             elements.apiModel.appendChild(option);
+        }
+
+        if (!selectedSet && elements.apiModel.options.length > 0) {
+            elements.apiModel.options[0].selected = true;
+            elements.apiModel.selectedIndex = 0;
+            elements.apiModel.value = elements.apiModel.options[0].value;
         }
 
         // Обновляем опции thinking после смены провайдера
@@ -564,10 +591,14 @@ var UIManager = (function() {
      * Переключение мобильных панелей
      */
     function switchMobilePanel(panelName) {
+        if (!panelName) panelName = 'left';
+
         // Обновляем активные табы
-        elements.mobilePanelTabs.forEach(function(tab) {
-            tab.classList.toggle('active', tab.dataset.panel === panelName);
-        });
+        if (elements.mobilePanelTabs) {
+            elements.mobilePanelTabs.forEach(function(tab) {
+                tab.classList.toggle('active', tab.dataset.panel === panelName);
+            });
+        }
 
         // Скрываем/показываем панели
         var panels = {
@@ -577,13 +608,22 @@ var UIManager = (function() {
         };
 
         for (var name in panels) {
-            if (panels[name]) {
+            var p = panels[name];
+            if (p) {
                 if (name === panelName) {
-                    panels[name].style.display = 'flex';
-                    panels[name].classList.remove('mobile-hidden');
+                    p.classList.remove('mobile-hidden');
+                    if (window.innerWidth <= 768) {
+                        p.style.display = 'block';
+                    } else {
+                        p.style.display = '';
+                    }
                 } else {
-                    panels[name].style.display = 'none';
-                    panels[name].classList.add('mobile-hidden');
+                    p.classList.add('mobile-hidden');
+                    if (window.innerWidth <= 768) {
+                        p.style.display = 'none';
+                    } else {
+                        p.style.display = '';
+                    }
                 }
             }
         }

@@ -13,7 +13,7 @@ ROOT_DIR = Path(__file__).resolve().parent
 SRC_DIR = ROOT_DIR / "src"
 DIST_DIR = ROOT_DIR / "dist"
 
-def build(offline: bool = False, output_file: Path = None):
+def build(offline: bool = True, output_file: Path = None):
     index_html_path = SRC_DIR / "index.html"
     if not index_html_path.exists():
         print(f"❌ Ошибка: Не найден {index_html_path}")
@@ -75,11 +75,11 @@ def build(offline: bool = False, output_file: Path = None):
 
 def main():
     parser = argparse.ArgumentParser(description="Сборка EPUB AI Translator в автономный HTML")
-    parser.add_argument("--offline", action="store_true", help="Встроить JSZip внутрь файла для полной автономности без интернета")
+    parser.add_argument("--cdn", action="store_true", help="Использовать CDN для JSZip вместо локального встраивания")
     parser.add_argument("-o", "--output", type=Path, default=None, help="Путь к результирующему файлу")
     args = parser.parse_args()
 
-    build(offline=args.offline, output_file=args.output)
+    build(offline=not args.cdn, output_file=args.output)
 
 if __name__ == "__main__":
     main()
