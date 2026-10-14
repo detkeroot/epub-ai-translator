@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EPUB AI Translator</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div id="app">
+        <!-- Header -->
+        <header class="app-header">
+            <h1>📚 AI Translator</h1>
+            <div class="header-actions">
+                <button id="btn-settings" class="btn btn-icon" title="Настройки">⚙️</button>
+                <button id="btn-help" class="btn btn-icon" title="Помощь">❓</button>
+            </div>
+        </header>
+
+        <!-- Mobile Panel Tabs -->
+        <nav class="mobile-panel-tabs mobile-only">
+            <button class="mobile-panel-tab active" data-panel="left">📁 Файл</button>
+            <button class="mobile-panel-tab" data-panel="center">⚙️ Настройки</button>
+            <button class="mobile-panel-tab" data-panel="right">📋 Данные</button>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="app-main">
+            <!-- Left Panel: File & Chapters -->
+            <section class="panel panel-left">
+                <div class="panel-section">
+                    <h3>📁 Файл</h3>
+                    <div class="file-drop-zone" id="file-drop-zone">
+                        <input type="file" id="file-input" accept=".epub,.txt" hidden>
+                        <p>Перетащите EPUB / TXT файл сюда</p>
+                        <p>или</p>
+                        <button class="btn btn-primary" id="btn-select-file">Выбрать файл</button>
+                    </div>
+                    <div id="file-info" class="file-info hidden">
+                        <span id="file-name"></span>
+                        <button class="btn btn-small btn-danger" id="btn-clear-file">✕</button>
+                    </div>
+                </div>
+
+                <div class="panel-section">
+                    <h3>📑 Главы <span id="chapter-count">(0)</span></h3>
+                    <div class="chapter-actions">
+                        <button class="btn btn-small" id="btn-select-all">Выбрать все</button>
+                        <button class="btn btn-small" id="btn-deselect-all">Снять все</button>
+                        <button class="btn btn-small" id="btn-invert-selection">Инвертировать</button>
+                    </div>
+                    <div id="chapter-list" class="chapter-list"></div>
+                </div>
+            </section>
+
+            <!-- Center Panel: Settings & Control -->
+            <section class="panel panel-center">
+                <div class="panel-section">
+                    <h3>🤖 Настройки API</h3>
+
+                    <div class="form-group">
+                        <label for="api-provider">Провайдер:</label>
+                        <select id="api-provider">
+                            <option value="gemini">Google Gemini</option>
+                            <option value="openrouter">OpenRouter</option>
+                            <option value="glm">GLM-4</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="api-model">Модель:</label>
+                        <select id="api-model"></select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="api-keys">API Ключи (по одному на строку):</label>
+                        <textarea id="api-keys" rows="3" placeholder="Введите API ключи..."></textarea>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="temperature">Температура:</label>
+                            <input type="range" id="temperature" min="0" max="2" step="0.1" value="1">
+                            <span id="temperature-value">1.0</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="rpm-limit">RPM лимит:</label>
+                            <input type="number" id="rpm-limit" min="1" max="100" value="10">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="num-instances">Параллельных воркеров:</label>
+                        <input type="number" id="num-instances" min="1" max="10" value="1">
+                    </div>
+
+                    <div class="form-group thinking-options" id="thinking-options" style="display: none;">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="thinking-enabled">
+                            Включить Thinking Mode
+                        </label>
+                        <div class="thinking-budget-wrapper" id="thinking-budget-wrapper" style="display: none;">
+                            <label for="thinking-budget">Бюджет токенов для размышлений:</label>
+                            <input type="number" id="thinking-budget" min="-1" max="100000" value="-1">
+                            <span class="hint">-1 = авто</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel-section">
+                    <h3>📝 Промпт</h3>
+                    <div class="form-group">
+                        <div class="prompt-header">
+                            <select id="prompt-preset">
+                                <option value="">-- Пресеты --</option>
+                            </select>
+                            <button class="btn btn-small" id="btn-save-prompt">💾</button>
+                            <button class="btn btn-small" id="btn-delete-prompt">🗑️</button>
+                        </div>
+                        <textarea id="custom-prompt" rows="8" placeholder="Введите промпт для перевода..."></textarea>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <label>
+                            <input type="checkbox" id="use-system-instruction">
+                            Использовать системную инструкцию
+                        </label>
+                    </div>
+                </div>
+
+                <div class="panel-section">
+                    <h3>⚙️ Опции</h3>
+                    <div class="options-grid">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="opt-chunking" checked>
+                            Разбивать главы
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="opt-dynamic-glossary" checked>
+                            Динамический глоссарий
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="opt-use-jieba">
+                            Jieba (CJK)
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="opt-segment-cjk">
+                            Сегмент. CJK
+                        </label>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="chunk-size">Размер чанка:</label>
+                            <input type="number" id="chunk-size" min="5000" max="100000" value="30000">
+                        </div>
+                        <div class="form-group">
+                            <label for="glossary-ai-mode">AI Режим Глоссария:</label>
+                            <select id="glossary-ai-mode">
+                                <option value="supplement">Дополнять (Skip existing)</option>
+                                <option value="update">Обновлять (Overwrite)</option>
+                                <option value="accumulate">Накапливать всё</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="fuzzy-threshold">Порог нечеткого поиска (%):</label>
+                        <input type="range" id="fuzzy-threshold" min="70" max="100" value="100">
+                        <span id="fuzzy-threshold-value">100</span>
+                    </div>
+                </div>
+
+                <!-- Control Buttons -->
+                <div class="control-buttons">
+                    <button class="btn btn-large btn-success" id="btn-start-translation" disabled>
+                        ▶️ Начать перевод
+                    </button>
+                    <button class="btn btn-large btn-primary" id="btn-dry-run" disabled title="Показать промпт без выполнения запроса к API">
+                        🔍 Предпросмотр
+                    </button>
+                    <button class="btn btn-large btn-warning hidden" id="btn-pause-translation">
+                        ⏸️ Пауза
+                    </button>
+                    <button class="btn btn-large btn-danger hidden" id="btn-stop-translation">
+                        ⏹️ Остановить
+                    </button>
+                </div>
+
+                <!-- Progress -->
+                <div class="progress-section hidden" id="progress-section">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                    <div class="progress-text">
+                        <span id="progress-current">0</span> / <span id="progress-total">0</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Panel: Glossary & Logs -->
+            <section class="panel panel-right">
+                <div class="tabs">
+                    <button class="tab-btn active" data-tab="glossary">📖 Глоссарий</button>
+                    <button class="tab-btn" data-tab="logs">📋 Логи</button>
+                    <button class="tab-btn" data-tab="results">📥 Результаты</button>
+                </div>
+
+                <!-- Glossary Tab -->
+                <div class="tab-content active" id="tab-glossary">
+                    <div class="glossary-actions">
+                        <button class="btn btn-small" id="btn-add-term">➕ Добавить</button>
+                        <button class="btn btn-small" id="btn-import-glossary">📤 Импорт</button>
+                        <button class="btn btn-small" id="btn-export-glossary">📥 Экспорт</button>
+                        <button class="btn btn-small btn-danger" id="btn-clear-glossary">🗑️ Очистить</button>
+                        <button class="btn btn-small btn-primary" id="btn-generate-glossary" title="Сгенерировать глоссарий из выбранных глав">✨ AI Генерация</button>
+                    </div>
+                    <div class="glossary-search">
+                        <input type="text" id="glossary-search" placeholder="Поиск терминов...">
+                    </div>
+                    <div id="glossary-list" class="glossary-list"></div>
+                    <div class="glossary-stats">
+                        Терминов: <span id="glossary-count">0</span>
+                    </div>
+                </div>
+
+                <!-- Logs Tab -->
+                <div class="tab-content" id="tab-logs">
+                    <div class="logs-actions">
+                        <button class="btn btn-small" id="btn-clear-logs">🗑️ Очистить</button>
+                        <button class="btn btn-small" id="btn-copy-logs">📋 Копировать</button>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="auto-scroll-logs" checked>
+                            Авто-прокрутка
+                        </label>
+                    </div>
+                    <div id="log-container" class="log-container"></div>
+                </div>
+
+                <!-- Results Tab -->
+                <div class="tab-content" id="tab-results">
+                    <div class="results-actions">
+                        <button class="btn btn-small btn-success" id="btn-download-all" disabled>
+                            📦 Скачать всё (ZIP)
+                        </button>
+                        <button class="btn btn-small" id="btn-download-epub" disabled>
+                            📚 Скачать EPUB
+                        </button>
+                    </div>
+                    <div id="results-list" class="results-list"></div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <span id="status-text">Готов к работе</span>
+            <span id="session-info"></span>
+        </footer>
+    </div>
+
+    <!-- Modals -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+        <!-- Settings Modal -->
+        <div id="modal-settings" class="modal hidden">
+            <div class="modal-header">
+                <h3>⚙️ Настройки</h3>
+                <button class="btn-close" data-close-modal>&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-section">
+                    <h4>API Ключи</h4>
+                    <div id="api-keys-manager"></div>
+                </div>
+                <div class="settings-section">
+                    <h4>Хранилище</h4>
+                    <button class="btn" id="btn-export-settings">Экспорт настроек</button>
+                    <button class="btn" id="btn-import-settings">Импорт настроек</button>
+                    <button class="btn btn-danger" id="btn-clear-storage">Очистить всё</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Add Term Modal -->
+        <div id="modal-add-term" class="modal hidden">
+            <div class="modal-header">
+                <h3>➕ Добавить термин</h3>
+                <button class="btn-close" data-close-modal>&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="term-original">Оригинал:</label>
+                    <input type="text" id="term-original" placeholder="Термин на исходном языке">
+                </div>
+                <div class="form-group">
+                    <label for="term-translation">Перевод:</label>
+                    <input type="text" id="term-translation" placeholder="Перевод термина">
+                </div>
+                <div class="form-group">
+                    <label for="term-note">Заметка:</label>
+                    <textarea id="term-note" rows="2" placeholder="Дополнительная информация..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" data-close-modal>Отмена</button>
+                <button class="btn btn-primary" id="btn-save-term">Сохранить</button>
+            </div>
+        </div>
+
+        <!-- Dry Run Modal -->
+        <div id="modal-dry-run" class="modal modal-large hidden">
+            <div class="modal-header">
+                <h3>🔍 Предпросмотр промпта (Dry Run)</h3>
+                <button class="btn-close" data-close-modal>&times;</button>
+            </div>
+            <div class="modal-body">
+                <pre id="dry-run-content"></pre>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" data-close-modal>Закрыть</button>
+                <button class="btn btn-primary" id="btn-copy-dry-run">📋 Копировать</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <!-- JSZip from CDN for reliability -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="js/lib/epub.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/utils/event-bus.js"></script>
+    <script src="js/utils/helpers.js"></script>
+    <script src="js/utils/language-tools.js"></script>
+    <script src="js/utils/text-processing.js"></script>
+    <script src="js/utils/epub-tools.js"></script>
+    <script src="js/utils/validator.js"></script>
+    <script src="js/core/settings-manager.js"></script>
+    <script src="js/core/glossary-generator.js"></script>
+    <script src="js/core/glossary-manager.js"></script>
+    <script src="js/core/task-manager.js"></script>
+    <script src="js/core/api-handlers.js"></script>
+    <script src="js/core/translation-engine.js"></script>
+    <script src="js/ui/ui-manager.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

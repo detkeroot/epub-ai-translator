@@ -1,0 +1,23 @@
+# OS & IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Node / JS
+node_modules/
+npm-debug.log*
+
+# Keys & Secrets
+*.key
+*keys*.txt
+*.env
+*.env.local
+
+# Build artifacts & temp
+dist/*.tmp
+*.log
+test_books/
+*.cache
