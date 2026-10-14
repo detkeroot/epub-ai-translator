@@ -1260,7 +1260,7 @@ input[type="range"] {
                             <option value="gemini">Google Gemini</option>
                             <option value="deepseek">DeepSeek API</option>
                             <option value="openrouter">OpenRouter</option>
-                            <option value="omniroute">OmniRoute (Шлюз :20128)</option>
+                            <option value="local_openai">Локальный API (OpenAI / Ollama)</option>
                             <option value="glm">GLM-4 (ZhipuAI)</option>
                             <option value="dry_run">Просмотр промпта</option>
                         </select>
@@ -2274,41 +2274,41 @@ var AppConfig = (function() {
                 }
             }
         },
-        omniroute: {
-            displayName: "OmniRoute (Шлюз :20128)",
+        local_openai: {
+            displayName: "Локальный API (OpenAI / Ollama)",
             handlerClass: "OpenRouterApiHandler",
             isAsync: true,
-            fileSuffix: "_omniroute.html",
+            fileSuffix: "_local.html",
             sharedRequestCounter: true,
-            baseUrl: "http://127.0.0.1:20128/v1/chat/completions",
+            baseUrl: "http://127.0.0.1:11434/v1/chat/completions",
             resetPolicy: {
                 type: "rolling",
                 durationHours: 24
             },
             models: {
-                "OmniRoute Auto": {
+                "Локальная модель (Default)": {
+                    id: "default",
+                    rpm: 60,
+                    needsChunking: true,
+                    maxConcurrentRequests: 5,
+                    maxOutputTokens: 32768
+                },
+                "Ollama Qwen 2.5": {
+                    id: "qwen2.5:latest",
+                    rpm: 60,
+                    needsChunking: true,
+                    maxConcurrentRequests: 5,
+                    maxOutputTokens: 32768
+                },
+                "Ollama DeepSeek R1": {
+                    id: "deepseek-r1:latest",
+                    rpm: 60,
+                    needsChunking: true,
+                    maxConcurrentRequests: 5,
+                    maxOutputTokens: 32768
+                },
+                "Local Gateway Auto": {
                     id: "auto",
-                    rpm: 60,
-                    needsChunking: true,
-                    maxConcurrentRequests: 10,
-                    maxOutputTokens: 32768
-                },
-                "OmniRoute Auto (Качество)": {
-                    id: "auto/smart",
-                    rpm: 60,
-                    needsChunking: true,
-                    maxConcurrentRequests: 10,
-                    maxOutputTokens: 32768
-                },
-                "OmniRoute Auto (Быстро)": {
-                    id: "auto/fast",
-                    rpm: 60,
-                    needsChunking: true,
-                    maxConcurrentRequests: 10,
-                    maxOutputTokens: 32768
-                },
-                "OmniRoute Auto (Дешевле)": {
-                    id: "auto/cheap",
                     rpm: 60,
                     needsChunking: true,
                     maxConcurrentRequests: 10,
