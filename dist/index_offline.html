@@ -73,6 +73,20 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         .conflict-overlap { border-left: 3px solid #f59e0b; }
         .conflict-reverse { border-left: 3px solid #8b5cf6; }
         .prompt-preview { font-family: 'Consolas', monospace; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+
+        /* Mobile responsive refinements */
+        @media (max-width: 768px) {
+            body { overflow-x: hidden; }
+            .card-gradient { padding: 1rem !important; }
+            .split-view { display: flex !important; flex-direction: column !important; gap: 1rem !important; }
+            #original-content, #translated-content { height: 320px !important; }
+            .validator-header-wrap { flex-direction: column !important; align-items: flex-start !important; }
+            .modal-content-wrap { max-height: 95vh !important; }
+        }
+        .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        #toast-container { pointer-events: none; }
+        .toast-item { pointer-events: auto; }
+
     </style>
 </head>
 <body class="gradient-bg min-h-screen text-white">
@@ -341,21 +355,21 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
                     <div class="lg:col-span-3">
                         <div class="card-gradient rounded-2xl border border-white/10 p-6">
-                            <div class="flex items-center justify-between mb-4">
+                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
                                 <h3 class="font-semibold flex items-center gap-2">
                                     <i class="fas fa-columns text-indigo-400"></i> Сравнение
                                     <span id="current-chapter-name" class="text-gray-400 font-normal ml-2"></span>
                                 </h3>
-                                <div class="flex gap-2">
-                                    <div class="flex bg-white/10 rounded-lg p-0.5 mr-2">
-                                        <button onclick="setValidatorViewMode('text')" id="view-text" class="px-3 py-1 rounded text-sm bg-indigo-600">Текст</button>
-                                        <button onclick="setValidatorViewMode('code')" id="view-code" class="px-3 py-1 rounded text-sm hover:bg-white/10">Код</button>
-                                        <button onclick="setValidatorViewMode('punct')" id="view-punct" class="px-3 py-1 rounded text-sm hover:bg-white/10">Пунктуация</button>
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <div class="flex bg-white/10 rounded-lg p-0.5">
+                                        <button onclick="setValidatorViewMode('text')" id="view-text" class="px-2.5 py-1 rounded text-xs sm:text-sm bg-indigo-600">Текст</button>
+                                        <button onclick="setValidatorViewMode('code')" id="view-code" class="px-2.5 py-1 rounded text-xs sm:text-sm hover:bg-white/10">Код</button>
+                                        <button onclick="setValidatorViewMode('punct')" id="view-punct" class="px-2.5 py-1 rounded text-xs sm:text-sm hover:bg-white/10">Пунктуация</button>
                                     </div>
-                                    <button onclick="prevChapterValidator()" class="px-3 py-1 bg-white/10 hover:bg-white/20 rounded-lg transition"><i class="fas fa-chevron-left"></i></button>
-                                    <button onclick="nextChapterValidator()" class="px-3 py-1 bg-white/10 hover:bg-white/20 rounded-lg transition"><i class="fas fa-chevron-right"></i></button>
-                                    <button onclick="markAsValidated()" class="px-4 py-1 bg-green-600 hover:bg-green-700 rounded-lg transition text-sm"><i class="fas fa-check mr-1"></i> Подтвердить</button>
-                                    <button onclick="retryChapter()" class="px-4 py-1 bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 rounded-lg transition text-sm"><i class="fas fa-redo mr-1"></i> Переперевести</button>
+                                    <button onclick="prevChapterValidator()" class="px-2.5 py-1 bg-white/10 hover:bg-white/20 rounded-lg transition" title="Предыдущая"><i class="fas fa-chevron-left"></i></button>
+                                    <button onclick="nextChapterValidator()" class="px-2.5 py-1 bg-white/10 hover:bg-white/20 rounded-lg transition" title="Следующая"><i class="fas fa-chevron-right"></i></button>
+                                    <button onclick="markAsValidated()" class="px-3 py-1 bg-green-600 hover:bg-green-700 rounded-lg transition text-xs sm:text-sm"><i class="fas fa-check mr-1"></i> Подтвердить</button>
+                                    <button onclick="retryChapter()" class="px-3 py-1 bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 rounded-lg transition text-xs sm:text-sm"><i class="fas fa-redo mr-1"></i> Повторить</button>
                                 </div>
                             </div>
 
@@ -417,6 +431,38 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                     <div class="card-gradient rounded-2xl p-6 border border-white/10">
                         <h3 class="font-semibold text-lg mb-4 flex items-center gap-2"><i class="fas fa-robot text-indigo-400"></i> Выбор модели</h3>
                         <div id="model-list" class="space-y-3 max-h-[400px] overflow-y-auto"><p class="text-gray-400">Сначала выберите провайдера</p></div>
+                    </div>
+
+                    
+                    <div class="card-gradient rounded-2xl p-6 border border-white/10 lg:col-span-2">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+                            <div>
+                                <h3 class="font-semibold text-lg flex items-center gap-2">
+                                    <i class="fas fa-brain text-purple-400"></i> Режим размышлений (Thinking Mode)
+                                </h3>
+                                <p class="text-xs text-gray-400 mt-1">Управление глубиной рассуждений для Gemini 3.x Flash/Pro и DeepSeek Reasoner</p>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="thinking-enabled" checked class="sr-only peer" onchange="saveThinkingSettings()">
+                                <div class="w-11 h-6 bg-white/20 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                            </label>
+                        </div>
+                        <div id="thinking-controls" class="grid sm:grid-cols-2 gap-4 pt-2 border-t border-white/10">
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-2">Уровень размышлений (Thinking Level)</label>
+                                <select id="thinking-level-select" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-purple-500 transition" onchange="saveThinkingSettings()">
+                                    <option value="minimal" selected>Minimal — быстрый (рекомендуется для Flash 3.8/3.7/3.5)</option>
+                                    <option value="low">Low — умеренный</option>
+                                    <option value="medium">Medium — подробный</option>
+                                    <option value="high">High — максимальное рассуждение (сложные фрагменты)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-2">Бюджет токенов (Token Budget для Pro-моделей)</label>
+                                <input type="number" id="thinking-budget-input" value="-1" min="-1" max="65536" step="512" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-purple-500 transition" onchange="saveThinkingSettings()">
+                                <p class="text-xs text-gray-500 mt-1">-1 = авто-бюджет. Для Flash 3.x используется уровень выше.</p>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="card-gradient rounded-2xl p-6 border border-white/10">
@@ -505,19 +551,19 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                 <div class="grid lg:grid-cols-3 gap-6">
                     <div class="lg:col-span-2">
                         <div class="card-gradient rounded-2xl p-6 border border-white/10">
-                            <div class="flex items-center justify-between mb-6">
+                            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                                 <h3 class="font-semibold text-lg flex items-center gap-2"><i class="fas fa-book text-indigo-400"></i> Глоссарий терминов <span id="glossary-count" class="text-sm text-gray-400">(0 терминов)</span></h3>
-                                <div class="flex gap-2">
-                                    <button onclick="analyzeGlossaryConflicts()" class="px-4 py-2 bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 rounded-lg transition text-sm"><i class="fas fa-search mr-1"></i> Анализ</button>
-                                    <button onclick="showGlossaryResolverModal()" class="px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 rounded-lg transition text-sm"><i class="fas fa-diagram-project mr-1"></i> Резолвер</button>
-                                    <button onclick="showGroupAnalyzerModal()" class="px-4 py-2 bg-sky-500/20 hover:bg-sky-500/30 text-sky-200 rounded-lg transition text-sm"><i class="fas fa-layer-group mr-1"></i> Группы</button>
-                                    <button onclick="showTermFrequencyModal()" class="px-4 py-2 bg-pink-500/20 hover:bg-pink-500/30 text-pink-200 rounded-lg transition text-sm"><i class="fas fa-chart-bar mr-1"></i> Частотность</button>
-                                    <button onclick="showGlossaryGeneratorModal()" class="px-4 py-2 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 rounded-lg transition text-sm"><i class="fas fa-microchip mr-1"></i> AI‑генерация</button>
-                                    <button onclick="showGlossaryCorrectorModal()" class="px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 rounded-lg transition text-sm"><i class="fas fa-wand-magic-sparkles mr-1"></i> AI‑корректор</button>
-                                    <button onclick="document.getElementById('glossary-import').click()" class="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg transition text-sm"><i class="fas fa-upload mr-1"></i> Импорт</button>
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <button onclick="analyzeGlossaryConflicts()" class="px-3 py-1.5 bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 rounded-lg transition text-xs sm:text-sm"><i class="fas fa-search mr-1"></i> Анализ</button>
+                                    <button onclick="showGlossaryResolverModal()" class="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 rounded-lg transition text-xs sm:text-sm"><i class="fas fa-diagram-project mr-1"></i> Резолвер</button>
+                                    <button onclick="showGroupAnalyzerModal()" class="px-3 py-1.5 bg-sky-500/20 hover:bg-sky-500/30 text-sky-200 rounded-lg transition text-xs sm:text-sm"><i class="fas fa-layer-group mr-1"></i> Группы</button>
+                                    <button onclick="showTermFrequencyModal()" class="px-3 py-1.5 bg-pink-500/20 hover:bg-pink-500/30 text-pink-200 rounded-lg transition text-xs sm:text-sm"><i class="fas fa-chart-bar mr-1"></i> Частотность</button>
+                                    <button onclick="showGlossaryGeneratorModal()" class="px-3 py-1.5 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 rounded-lg transition text-xs sm:text-sm"><i class="fas fa-microchip mr-1"></i> AI‑генерация</button>
+                                    <button onclick="showGlossaryCorrectorModal()" class="px-3 py-1.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 rounded-lg transition text-xs sm:text-sm"><i class="fas fa-wand-magic-sparkles mr-1"></i> AI‑корректор</button>
+                                    <button onclick="document.getElementById('glossary-import').click()" class="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg transition text-xs sm:text-sm"><i class="fas fa-upload mr-1"></i> Импорт</button>
                                     <input type="file" id="glossary-import" accept=".json,.txt" class="hidden" onchange="importGlossary(event)">
-                                    <button onclick="clearGlossary()" class="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg transition text-sm">Очистить</button>
-                                    <button onclick="downloadGlossary()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg transition text-sm"><i class="fas fa-download mr-2"></i>Скачать</button>
+                                    <button onclick="clearGlossary()" class="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg transition text-xs sm:text-sm">Очистить</button>
+                                    <button onclick="downloadGlossary()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 rounded-lg transition text-xs sm:text-sm"><i class="fas fa-download mr-1"></i>Скачать</button>
                                 </div>
                             </div>
 
@@ -715,7 +761,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         </div>
     </div>
 
-    <div id="toast-container" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
+    <div id="toast-container" class="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 z-[99999] space-y-2 pointer-events-none flex flex-col items-center sm:items-end"></div>
 
     <!-- Glossary AI Generator Modal -->
     <div id="glossary-generator-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
@@ -764,6 +810,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                             <button onclick="glossaryGeneratorBuildPreview()" class="w-full py-2.5 bg-white/10 hover:bg-white/20 rounded-lg transition">
                                 <i class="fas fa-eye mr-2"></i>Собрать превью
                             </button>
+                            <label class="flex items-center gap-2 cursor-pointer text-xs text-indigo-300 mb-2">
+                                <input type="checkbox" id="gg-auto-apply" checked class="w-4 h-4 rounded">
+                                <span>Авто-применять в глоссарий</span>
+                            </label>
                             <button onclick="glossaryGeneratorRun()" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-lg transition font-medium">
                                 <i class="fas fa-rocket mr-2"></i>Сгенерировать
                             </button>
@@ -1676,6 +1726,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         // STATE
         // =============================================
         let state = {
+            abortController: null,
+            thinkingEnabled: true,
+            thinkingLevel: 'minimal',
+            thinkingBudget: -1,
             keys: {},
             provider: null,
             model: null,
@@ -1831,13 +1885,21 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
         function showToast(message, type = 'info') {
             const container = document.getElementById('toast-container');
+            if (!container) return;
             const colors = { info: 'bg-indigo-600', success: 'bg-green-600', error: 'bg-red-600', warning: 'bg-yellow-600' };
             const toast = document.createElement('div');
-            toast.className = `${colors[type]} px-4 py-3 rounded-xl shadow-lg transform transition-all duration-300 translate-x-full`;
-            toast.innerHTML = `<div class="flex items-center gap-3"><i class="fas fa-${type === 'success' ? 'check' : type === 'error' ? 'times' : 'info'}-circle"></i><span>${escapeHtml(message)}</span></div>`;
+            toast.className = `toast-item ${colors[type] || 'bg-indigo-600'} text-white px-4 py-3 rounded-xl shadow-2xl border border-white/20 transform transition-all duration-300 opacity-0 translate-y-2 max-w-sm w-full`;
+            toast.innerHTML = `<div class="flex items-center gap-3 text-sm font-medium"><i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'times-circle' : type === 'warning' ? 'exclamation-circle' : 'info-circle'} text-base"></i><span>${escapeHtml(message)}</span></div>`;
             container.appendChild(toast);
-            requestAnimationFrame(() => toast.classList.remove('translate-x-full'));
-            setTimeout(() => { toast.classList.add('translate-x-full'); setTimeout(() => toast.remove(), 300); }, 3000);
+            requestAnimationFrame(() => {
+                toast.classList.remove('opacity-0', 'translate-y-2');
+                toast.classList.add('opacity-100', 'translate-y-0');
+            });
+            setTimeout(() => {
+                toast.classList.remove('opacity-100', 'translate-y-0');
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
         }
 
         function log(message, type = 'info') {
@@ -2030,6 +2092,20 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             }).join('');
         }
 
+        
+        function saveThinkingSettings() {
+            state.thinkingEnabled = document.getElementById('thinking-enabled')?.checked ?? true;
+            state.thinkingLevel = document.getElementById('thinking-level-select')?.value || 'minimal';
+            state.thinkingBudget = parseInt(document.getElementById('thinking-budget-input')?.value || '-1', 10);
+            saveState();
+        }
+        function toggleThinkingSettings() {
+            saveThinkingSettings();
+            const enabled = state.thinkingEnabled;
+            const controls = document.getElementById('thinking-controls');
+            if (controls) controls.style.opacity = enabled ? '1' : '0.4';
+        }
+
         function selectModel(modelName) {
             state.model = modelName;
             saveState(); updateUI(); renderModelList();
@@ -2167,6 +2243,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             if (!state.epubData?.chapters?.length) { showToast('Сначала загрузите EPUB', 'warning'); return; }
 
             state.isTranslating = true; state.cancelRequested = false; state.isPaused = false;
+            state.abortController = new AbortController();
             state.translatedChapters = [];
             state.stats = { tokensIn: 0, tokensOut: 0, startTime: Date.now() };
 
@@ -2242,8 +2319,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                             updateGlossaryDisplay();
                         }
                     } catch (e) {
+                        if (e instanceof OperationCancelledError) return;
                         if (e instanceof AllKeysExhaustedError) throw e;
                         log(`Ошибка глоссария: ${e.message}`, 'warning');
+                    }
+                    if (state.cancelRequested) {
+                        log('Перевод отменен', 'warning');
+                        return;
                     }
                 }
 
@@ -2779,7 +2861,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         function cancelTranslation() {
             state.cancelRequested = true;
             state.isPaused = false;
-            log('Отмена...', 'warning');
+            state.isTranslating = false;
+            if (state.abortController) {
+                try { state.abortController.abort(); } catch {}
+            }
+            document.getElementById('progress-panel').classList.add('hidden');
+            document.getElementById('file-info').classList.remove('hidden');
+            showToast('Перевод отменен', 'warning');
+            log('Перевод отменен пользователем', 'warning');
         }
 
         function updateProgress(percent, status, current, total) {
@@ -2954,18 +3043,34 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             const systemPrompt = document.getElementById('system-prompt')?.value?.trim();
             if (systemPrompt) body.systemInstruction = { parts: [{ text: systemPrompt }] };
 
-            if (modelConfig.minThinkingBudget !== undefined && modelConfig.minThinkingBudget !== false) {
-                if (typeof modelConfig.minThinkingBudget === 'string') {
-                    body.generationConfig.thinkingConfig = { thinkingLevel: String(modelConfig.minThinkingBudget).toUpperCase() };
-                } else if (typeof modelConfig.minThinkingBudget === 'number' && modelConfig.minThinkingBudget >= 0) {
-                    body.generationConfig.thinkingConfig = { thinkingBudget: modelConfig.minThinkingBudget };
+            // Thinking Mode config (UI controls with fallback)
+            const thinkingEnabled = document.getElementById('thinking-enabled')?.checked ?? (state.thinkingEnabled ?? true);
+            const userLevel = (document.getElementById('thinking-level-select')?.value || state.thinkingLevel || modelConfig.minThinkingBudget || 'minimal').toLowerCase();
+            const userBudget = parseInt(document.getElementById('thinking-budget-input')?.value || state.thinkingBudget || '-1', 10);
+
+            if (modelConfig.minThinkingBudget !== false) {
+                if (thinkingEnabled) {
+                    if (typeof modelConfig.minThinkingBudget === 'string' || modelConfig.thinkingLevel) {
+                        body.generationConfig.thinkingConfig = { thinkingLevel: userLevel.toUpperCase() };
+                    } else if (typeof modelConfig.minThinkingBudget === 'number' || userBudget >= 0) {
+                        const budget = userBudget > 0 ? userBudget : (typeof modelConfig.minThinkingBudget === 'number' ? modelConfig.minThinkingBudget : 1024);
+                        body.generationConfig.thinkingConfig = { thinkingBudget: budget };
+                    }
+                } else {
+                    // If disabled: minimal thinking if required by model, else budget 0
+                    if (typeof modelConfig.minThinkingBudget === 'string' && modelConfig.minThinkingBudget === 'minimal') {
+                        body.generationConfig.thinkingConfig = { thinkingLevel: 'MINIMAL' };
+                    } else {
+                        body.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+                    }
                 }
             }
 
             const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
+                body: JSON.stringify(body),
+                signal: state.abortController?.signal
             });
 
             if (!response.ok) {
@@ -2999,7 +3104,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             const response = await fetch(baseUrl, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ model: modelConfig.id, messages, max_tokens: modelConfig.maxOutputTokens })
+                body: JSON.stringify({ model: modelConfig.id, messages, max_tokens: modelConfig.maxOutputTokens }),
+                signal: state.abortController?.signal
             });
 
             if (!response.ok) {
@@ -4959,7 +5065,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                 glossaryGeneratorLastResult = parsed;
                 document.getElementById('gg-result').value = JSON.stringify(parsed, null, 2);
 
-                showToast(`Готово: ${Object.keys(parsed).length} терминов`, 'success');
+                const autoApply = document.getElementById('gg-auto-apply')?.checked ?? true;
+                if (autoApply) {
+                    glossaryGeneratorMergeResult();
+                } else {
+                    showToast(`Готово: ${Object.keys(parsed).length} терминов`, 'success');
+                }
                 log(`AI‑генерация: получено ${Object.keys(parsed).length} терминов`, 'success');
             } catch (e) {
                 console.error(e);
