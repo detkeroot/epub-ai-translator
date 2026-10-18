@@ -2644,7 +2644,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                     } catch (e) {
                         if (e instanceof OperationCancelledError) return;
                         if (e instanceof AllKeysExhaustedError) throw e;
-                        log(`Ошибка глоссария: ${e.message}`, 'warning');
+                        log(`⚠️ Глоссарий пропущен: фильтр модели (${e.message}). Главы переводятся штатно.`, 'warning');
                     }
                     if (state.cancelRequested) {
                         log('Перевод отменен', 'warning');
@@ -3325,7 +3325,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                     }
 
                     const errStr = String(e?.message || e).toLowerCase();
-                    if (errStr.includes('blocked') || errStr.includes('safety')) throw new ContentBlockedError(String(e?.message || e));
+                    if (errStr.includes('blocked') || errStr.includes('safety') || errStr.includes('prohibited') || errStr.includes('recitation')) {
+                        throw new ContentBlockedError(String(e?.message || e));
+                    }
                     if (errStr.includes('429')) {
                         await keyManager.pauseKeyFor(modelConfig.id, apiKey, 60000);
                         saveState();
@@ -3492,6 +3494,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                     const delayMs = extractGeminiRetryDelayMs(text) ?? 60000;
                     throw new TemporaryRateLimitError(`Gemini 429: temporary limit`, delayMs);
                 }
+                const errLower = text.toLowerCase();
+                if (errLower.includes('prohibited') || errLower.includes('safety') || errLower.includes('blocked') || errLower.includes('recitation')) {
+                    throw new ContentBlockedError(`Gemini Filter: ${text}`);
+                }
                 throw new NetworkError(`Gemini ${response.status}: ${text}`, 30000);
             }
 
@@ -3502,7 +3508,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             }
 
             const candidate = data.candidates[0];
-            if (candidate.finishReason === 'SAFETY' || candidate.finishReason === 'BLOCKED') throw new ContentBlockedError(candidate.finishReason);
+            const fr = String(candidate.finishReason || '').toUpperCase();
+            if (fr === 'SAFETY' || fr === 'BLOCKED' || fr === 'PROHIBITED_CONTENT' || fr === 'RECITATION' || fr === 'BLOCKLIST' || fr === 'SPII') {
+                throw new ContentBlockedError(`Gemini finishReason: ${fr}`);
+            }
             return candidate.content?.parts?.[0]?.text || '';
         }
 
