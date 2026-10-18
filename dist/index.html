@@ -896,7 +896,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                     <div class="bg-white/5 rounded-xl p-4 border border-white/10">
                         <div class="text-sm text-gray-400 mb-2">Действия</div>
                         <div class="space-y-3">
-                            <button onclick="glossaryGeneratorBuildPreview()" class="w-full py-2.5 bg-white/10 hover:bg-white/20 rounded-lg transition">
+                            <button onclick="glossaryGeneratorBuildPreview()" id="gg-preview-btn" class="w-full py-2.5 bg-white/10 hover:bg-white/20 rounded-lg transition font-medium flex items-center justify-center gap-2">
                                 <i class="fas fa-eye mr-2"></i>Собрать превью
                             </button>
                             <label class="flex items-center gap-2 cursor-pointer text-xs text-indigo-300 mb-2">
@@ -4970,20 +4970,35 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         // UTILITIES
         // =============================================
         function filterGlossary(glossary, text, maxTerms = 60) {
+            if (!glossary || !text) return {};
             const normalizedText = text.toLowerCase().normalize('NFKC');
+            const normalizedTextNoSpaces = normalizedText.replace(/\s+/g, '');
             const found = {};
-            const isCJK = LanguageDetector.isCJKText(text);
 
             for (const [term, data] of Object.entries(glossary)) {
                 if (Object.keys(found).length >= maxTerms) break;
-                const normalizedTerm = term.toLowerCase().normalize('NFKC');
-                if (isCJK) {
-                    if (normalizedText.replace(/\s+/g, '').includes(normalizedTerm.replace(/\s+/g, ''))) found[term] = data;
+                const cleanTerm = String(term || '').trim();
+                if (!cleanTerm) continue;
+
+                const normalizedTerm = cleanTerm.toLowerCase().normalize('NFKC');
+                const termIsCJK = LanguageDetector.isCJKText(normalizedTerm);
+
+                if (termIsCJK) {
+                    const cjkTermNoSpaces = normalizedTerm.replace(/\s+/g, '');
+                    if (cjkTermNoSpaces && normalizedTextNoSpaces.includes(cjkTermNoSpaces)) {
+                        found[term] = data;
+                    }
                 } else {
                     try {
-                        if (new RegExp(`\\b${normalizedTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(normalizedText)) found[term] = data;
+                        const escaped = normalizedTerm.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+                        const re = new RegExp('(^|[^a-zA-Z0-9])' + escaped + '([^a-zA-Z0-9]|$)', 'i');
+                        if (re.test(normalizedText)) {
+                            found[term] = data;
+                        }
                     } catch {
-                        if (normalizedText.includes(normalizedTerm)) found[term] = data;
+                        if (normalizedText.includes(normalizedTerm)) {
+                            found[term] = data;
+                        }
                     }
                 }
             }
@@ -6232,9 +6247,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                 if (slice.length > 0) {
                     const lines = [];
                     if (mergeMode === 'update') {
-                        lines.push('--- РЕЖИМ ОБНОВЛЕНИЯ: Проанализируй контекст глав. Если для уже существующего термина появился более точный перевод, правильный пол персонажа, фамилия или титул — ОБНОВИ его! Новые найденные термины добавь. ---');
+                        lines.push('--- РЕЖИМ ОБНОВЛЕНИЯ: Найдено ' + slice.length + ' терминов в этих главах. Уточни их перевод/пол/фамилию, если есть новая информация. Новые термины добавь! ---');
                     } else {
-                        lines.push('--- КОНТЕКСТ: УЖЕ СУЩЕСТВУЮЩИЙ ГЛОССАРИЙ (используй для консистентности) ---');
+                        lines.push('--- КОНТЕКСТ: УЖЕ СУЩЕСТВУЮЩИЙ ГЛОССАРИЙ (' + slice.length + ' терминов из этих глав для консистентности) ---');
                     }
                     for (const [orig, data] of slice) {
                         const tr = String(data?.translation || '').trim();
