@@ -1414,6 +1414,35 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             }
         }
 
+        // Shared Global Gate to prevent worker bursts
+        class GlobalRequestGate {
+            constructor() {
+                this.lastRequestTime = 0;
+                this._mutex = new AsyncMutex();
+            }
+            async waitSlot(minIntervalMs = 1500) {
+                if (!minIntervalMs || minIntervalMs <= 0) return;
+                await this._mutex.withLock(async () => {
+                    const now = Date.now();
+                    const elapsed = now - this.lastRequestTime;
+                    if (elapsed < minIntervalMs) {
+                        await sleep(minIntervalMs - elapsed);
+                    }
+                    this.lastRequestTime = Date.now();
+                });
+            }
+        }
+        const globalRequestGate = new GlobalRequestGate();
+
+        // Global check for pause & cancel across all workers and subroutines
+        async function checkPauseAndCancel() {
+            if (state.cancelRequested) throw new OperationCancelledError('Cancelled');
+            while (state.isPaused && !state.cancelRequested) {
+                await sleep(200);
+            }
+            if (state.cancelRequested) throw new OperationCancelledError('Cancelled');
+        }
+
         // =============================================
         // EVENT BUS (Like PyQt EventBus)
         // =============================================
@@ -1555,6 +1584,26 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                     }
                 }
                 return hasPaused && minWait !== Infinity ? Math.max(1000, minWait) : null;
+            }
+
+            getPoolPauseRemainingMs(modelId) {
+                const now = Date.now();
+                const remList = [];
+                for (const key of this.keys) {
+                    const status = this._getStatusForModel(key, modelId);
+                    this._normalizeAvailability(status);
+                    if (status.exhaustedLevel === 0) return 0; // At least one key ready right now
+                    if (status.exhaustedLevel === 1 && status.pausedUntil) {
+                        const rem = status.pausedUntil - now;
+                        if (rem > 0) remList.push(rem);
+                    }
+                }
+                if (remList.length === 0) return null;
+                remList.sort((a, b) => a - b);
+                // Thundering herd prevention: wait until at least 25% of keys (or min 3 keys) recover
+                const targetIdx = Math.min(remList.length - 1, Math.max(0, Math.min(3, Math.ceil(this.keys.length * 0.25)) - 1));
+                const waitMs = remList[targetIdx];
+                return Math.max(2000, waitMs);
             }
 
             getCurrent() { return this.keys.length > 0 ? this.keys[this.currentIndex] : null; }
@@ -2689,11 +2738,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                     const batchingMaxChars = Math.max(30000, parseInt(document.getElementById('batching-max-chars')?.value) || 120000);
 
                     while (true) {
-                        await waitIfPaused();
-                        if (state.cancelRequested) return;
+                        await checkPauseAndCancel();
+                        if (state.cancelRequested || allKeysExhausted) return;
 
                         const idx = await getNextIndex();
-                        if (idx === null) return;
+                        if (idx === null || allKeysExhausted) return;
 
                         // Decide between single and batching.
                         // Batching strategy: if enabled, this worker will try to pull additional small chapters.
@@ -2804,9 +2853,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                                     } catch (err) {
                                         const chapter = chaptersToTranslate[i];
                                         if (err instanceof AllKeysExhaustedError) {
-                                            log('⛔ Все ключи исчерпаны!', 'error');
+                                            log('⛔ Все ключи исчерпаны! Остановка перевода.', 'error');
                                             allKeysExhausted = true;
                                             resultsByIndex[i] = { ...chapter, content };
+                                            showToast('Все ключи исчерпаны', 'error');
+                                            return; // Stop worker immediately
                                         } else if (err instanceof ContentBlockedError) {
                                             log(`🔞 Глава ${startIdx + i + 1}: цензура AI модели`, 'warning');
                                             if (document.getElementById('fallback-google-translate')?.checked) {
@@ -2877,9 +2928,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                             }
                         } catch (e) {
                             if (e instanceof AllKeysExhaustedError) {
-                                log('⛔ Все ключи исчерпаны!', 'error');
+                                log('⛔ Все ключи исчерпаны! Остановка перевода.', 'error');
                                 allKeysExhausted = true;
                                 resultsByIndex[idx] = { ...chapter, content };
+                                showToast('Все ключи исчерпаны', 'error');
+                                return; // Stop worker immediately
                             } else if (e instanceof ContentBlockedError) {
                                 log(`🔞 Глава ${startIdx + idx + 1}: цензура AI модели`, 'warning');
                                 if (document.getElementById('fallback-google-translate')?.checked) {
@@ -3292,6 +3345,28 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             document.getElementById('tokens-out').textContent = formatNumber(state.stats.tokensOut);
         }
 
+        let poolCooldownPromise = null;
+        async function waitForPoolCooldown(keyManager, modelConfig) {
+            if (poolCooldownPromise) return poolCooldownPromise;
+            poolCooldownPromise = (async () => {
+                try {
+                    const waitMs = keyManager.getPoolPauseRemainingMs(modelConfig.id);
+                    if (waitMs !== null && waitMs > 0) {
+                        const waitSec = Math.ceil(waitMs / 1000);
+                        log('⏳ Все ключи на паузе (лимит 429). Ждём восстановление пула ' + waitSec + 'с...', 'warning');
+                        const waitEnd = Date.now() + waitMs + 600;
+                        while (Date.now() < waitEnd) {
+                            await checkPauseAndCancel();
+                            await sleep(500);
+                        }
+                    }
+                } finally {
+                    poolCooldownPromise = null;
+                }
+            })();
+            return poolCooldownPromise;
+        }
+
         async function callAI(prompt) {
             const provider = state.provider;
             const providerConfig = PROVIDERS_CONFIG[provider];
@@ -3313,26 +3388,19 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             let attempt = 0;
 
             while (attempt < totalAttempts) {
-                if (state.cancelRequested) throw new OperationCancelledError('Cancelled');
+                await checkPauseAndCancel();
 
                 const lease = await keyManager.acquireKey(modelConfig.id);
                 if (!lease) {
                     // Check if keys are temporarily paused (429 cooldown / yellow zone)
-                    const waitMs = keyManager.getMinPauseRemainingMs(modelConfig.id);
+                    const waitMs = keyManager.getPoolPauseRemainingMs(modelConfig.id);
                     if (waitMs !== null && waitMs > 0) {
-                        const waitSec = Math.ceil(waitMs / 1000);
-                        log(`⏳ Все ключи на паузе (лимит 429). Ждём кулдаун ${waitSec}с без сброса перевода...`, 'warning');
-                        // Cooldown wait without burning attempts counter
-                        const waitEnd = Date.now() + waitMs + 600;
-                        while (Date.now() < waitEnd) {
-                            if (state.cancelRequested) throw new OperationCancelledError('Cancelled');
-                            await sleep(1000);
-                        }
+                        await waitForPoolCooldown(keyManager, modelConfig);
                         continue;
                     }
 
                     attempt++;
-                    await sleep(500);
+                    await sleep(1000);
                     continue;
                 }
 
@@ -3340,12 +3408,18 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                 document.getElementById('current-key-index').textContent = `${lease.index + 1}/${keyManager.count()}`;
 
                 try {
+                    await checkPauseAndCancel();
+
                     const userRpm = parseInt(document.getElementById('rpm-limit')?.value || 0, 10);
                     const effectiveRpm = (userRpm > 0) ? userRpm : (modelConfig.rpm || 5);
                     await keyManager.waitForRateLimitFor(modelConfig.id, apiKey, effectiveRpm);
 
-                    const staggerSec = parseFloat(document.getElementById('request-stagger-delay')?.value || '1.5');
-                    if (staggerSec > 0) await sleep(staggerSec * 1000);
+                    // Global inter-request gate across all parallel workers
+                    const userStagger = parseFloat(document.getElementById('request-stagger-delay')?.value || '1.5');
+                    const staggerMs = Math.max(1200, Math.floor(userStagger * 1000));
+                    await globalRequestGate.waitSlot(staggerMs);
+
+                    await checkPauseAndCancel();
 
                     let result;
                     if (provider === 'gemini' || provider === 'gemini_top') {
@@ -3366,7 +3440,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                         log(`⏳ 429: пауза ключа ${lease.index + 1} на ${Math.ceil(e.delayMs / 1000)}с`, 'warning');
                         await keyManager.pauseKeyFor(modelConfig.id, apiKey, e.delayMs);
                         saveState();
-                        await sleep(500);
+                        // Stagger backoff before attempting next key to let rate limiters breathe
+                        await sleep(2500);
                         continue;
                     }
 
@@ -3516,7 +3591,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                 const bodyParams = new URLSearchParams();
                 bodyParams.append('q', chunk);
 
-                const response = await fetch(url, {
+                await checkPauseAndCancel();
+            const response = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: bodyParams.toString(),
@@ -3634,6 +3710,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
             messages.push({ role: 'user', content: prompt });
 
+            await checkPauseAndCancel();
             const response = await fetch(baseUrl, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
