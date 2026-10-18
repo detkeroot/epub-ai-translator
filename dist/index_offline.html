@@ -420,6 +420,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                                     <button onclick="nextChapterValidator()" class="px-2.5 py-1 bg-white/10 hover:bg-white/20 rounded-lg transition" title="Следующая"><i class="fas fa-chevron-right"></i></button>
                                     <button onclick="markAsValidated()" class="px-3 py-1 bg-green-600 hover:bg-green-700 rounded-lg transition text-xs sm:text-sm"><i class="fas fa-check mr-1"></i> Подтвердить</button>
                                     <button onclick="retryChapter()" class="px-3 py-1 bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 rounded-lg transition text-xs sm:text-sm"><i class="fas fa-redo mr-1"></i> Повторить</button>
+                                    <button onclick="autoFixAllEmptyChapters()" id="btn-autofix-empty" class="px-3 py-1 bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-500/30 rounded-lg transition text-xs sm:text-sm flex items-center gap-1 font-medium" title="Автоматически найти и доперевести все пустые главы в книге">
+                                        <i class="fas fa-wand-magic-sparkles mr-1"></i> Доперевести пустые
+                                    </button>
                                 </div>
                             </div>
 
@@ -2735,7 +2738,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                                     } else {
                                         // fallback to single per chapter (parsing failed for this chapter)
                                         const src = originals.find(o => o.path === ch.path)?.content || '';
-                                        const one = await translateChapter(src, chunkSize);
+                                        let one = await translateChapter(src, chunkSize);
+                                        if (!hasMeaningfulText(one) && document.getElementById('fallback-google-translate')?.checked) {
+                                            one = await translateWithGoogleWeb(src);
+                                        }
                                         resultsByIndex[i] = { ...ch, content: one };
                                         await saveChapterResult(resultsByIndex[i]);
                                         log(`Глава ${startIdx + i + 1} ✓ (fallback)`, 'warning');
@@ -2821,7 +2827,21 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                             if (allKeysExhausted) {
                                 resultsByIndex[idx] = { ...chapter, content };
                             } else {
-                                const translated = await translateChapter(content, chunkSize);
+                                let translated = await translateChapter(content, chunkSize);
+
+                                // If empty, auto-retry once in single mode
+                                if (!hasMeaningfulText(translated) && !state.cancelRequested) {
+                                    log(`⚠️ Глава ${startIdx + idx + 1}: ответ пустой, повторный запрос...`, 'warning');
+                                    await sleep(1000);
+                                    translated = await translateChapter(content, chunkSize);
+                                }
+
+                                // If still empty and Google fallback enabled, translate via Google Web
+                                if (!hasMeaningfulText(translated) && document.getElementById('fallback-google-translate')?.checked) {
+                                    log(`🌐 Глава ${startIdx + idx + 1}: пустой ответ модели, фолбэк на Google Web Translate...`, 'info');
+                                    translated = await translateWithGoogleWeb(content);
+                                }
+
                                 resultsByIndex[idx] = { ...chapter, content: translated };
                                 await saveChapterResult(resultsByIndex[idx]);
                                 log(`Глава ${startIdx + idx + 1} ✓ (воркер ${workerNo})`, 'success');
@@ -2926,6 +2946,18 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             const closeIdx = s.toLowerCase().lastIndexOf('</body>');
             if (closeIdx === -1 || closeIdx < startInner) return s;
             return s.slice(startInner, closeIdx);
+        }
+
+        
+        function hasMeaningfulText(html) {
+            if (!html || typeof html !== 'string') return false;
+            // Strip tags and media comments
+            const stripped = html.replace(/<!--[\s\S]*?-->/g, ' ')
+                                 .replace(/<[^>]+>/g, ' ')
+                                 .replace(/&[a-z0-9#]+;/gi, ' ')
+                                 .replace(/\s+/g, ' ')
+                                 .trim();
+            return stripped.length >= 15;
         }
 
         function isContentEffectivelyEmpty(html) {
@@ -3996,6 +4028,118 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             renderValidatorChapters();
             if (state.validatorData.currentIndex < state.validatorData.chapters.length - 1) setTimeout(() => nextChapterValidator(), 300);
             showToast('Глава подтверждена', 'success');
+        }
+
+        
+        async function autoFixAllEmptyChapters() {
+            if (!state.validatorData?.chapters?.length) {
+                showToast('Сначала загрузите проект во вкладку Валидатор', 'warning');
+                return;
+            }
+            if (!state.epubData?.zip) {
+                showToast('Оригинал книги не загружен. Перейдите во вкладку Перевод и загрузите EPUB.', 'warning');
+                return;
+            }
+            if (state.isTranslating) {
+                showToast('Нельзя запускать во время активного перевода', 'warning');
+                return;
+            }
+
+            const chapters = state.validatorData.chapters;
+            const emptyIndices = [];
+
+            for (let i = 0; i < chapters.length; i++) {
+                const ch = chapters[i];
+                if (!hasMeaningfulText(ch.content)) {
+                    emptyIndices.push(i);
+                }
+            }
+
+            if (emptyIndices.length === 0) {
+                showToast('В книге нет пустых глав! Все главы переведены.', 'success');
+                return;
+            }
+
+            const confirmMsg = `Найдено ${emptyIndices.length} пустых глав (например: ${emptyIndices.slice(0, 3).map(i => chapters[i].title || 'Глава ' + (i+1)).join(', ')}...).\nЗапустить автоматический доперевод?`;
+            if (!confirm(confirmMsg)) return;
+
+            showToast(`Старт доперевода: ${emptyIndices.length} глав...`, 'info');
+            log(`⚡ Авто-доперевод: найдено ${emptyIndices.length} пустых глав. Запуск...`, 'info');
+
+            const chunkSize = parseInt(document.getElementById('chunk-size').value) || 50000;
+            let fixedCount = 0;
+            const btn = document.getElementById('btn-autofix-empty');
+            if (btn) {
+                btn.disabled = true;
+                btn.classList.add('opacity-50');
+            }
+
+            state.abortController = new AbortController();
+
+            try {
+                for (let step = 0; step < emptyIndices.length; step++) {
+                    const idx = emptyIndices[step];
+                    const chapter = chapters[idx];
+                    const originalPath = chapter.original?.path || chapter.path;
+                    const fileObj = state.epubData.zip.file(originalPath);
+                    if (!fileObj) continue;
+
+                    log(`↻ Доперевод (${step + 1}/${emptyIndices.length}): ${chapter.title || 'Глава ' + (idx + 1)}...`, 'info');
+                    const originalContent = await fileObj.async('string');
+
+                    let translated = '';
+                    try {
+                        translated = await translateChapter(originalContent, chunkSize);
+                    } catch (e) {
+                        if (e instanceof ContentBlockedError && document.getElementById('fallback-google-translate')?.checked) {
+                            translated = await translateWithGoogleWeb(originalContent);
+                        } else {
+                            log(`Ошибка главы ${idx + 1}: ${e.message}`, 'error');
+                        }
+                    }
+
+                    if (!hasMeaningfulText(translated) && document.getElementById('fallback-google-translate')?.checked) {
+                        // Fallback to Google Web if still empty
+                        try {
+                            translated = await translateWithGoogleWeb(originalContent);
+                        } catch {}
+                    }
+
+                    if (hasMeaningfulText(translated)) {
+                        chapter.content = translated;
+                        state.validatorData.validated.delete(idx);
+
+                        const tIdx = state.translatedChapters.findIndex(c => c?.path === chapter.path);
+                        const record = { ...(chapter.original || chapter), path: chapter.path, title: chapter.title, content: translated };
+                        if (tIdx >= 0) state.translatedChapters[tIdx] = record;
+                        else state.translatedChapters.push(record);
+
+                        if (state.bookId) {
+                            await ChapterStore.saveChapter(state.bookId, record.path, record.title, record.content);
+                        }
+                        fixedCount++;
+                        log(`✓ Глава ${chapter.title || (idx + 1)} успешно допереведена`, 'success');
+                    }
+                }
+
+                await saveProjectState();
+                renderValidatorChapters();
+                if (state.validatorData.currentIndex !== undefined) {
+                    await selectValidatorChapter(state.validatorData.currentIndex);
+                }
+
+                showToast(`Допереведено ${fixedCount} из ${emptyIndices.length} глав!`, 'success');
+                log(`🎉 Авто-доперевод завершён: успешно восстановлено ${fixedCount} глав`, 'success');
+
+            } catch (err) {
+                console.error(err);
+                showToast(`Прервано: ${err.message}`, 'error');
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.classList.remove('opacity-50');
+                }
+            }
         }
 
         async function retryChapter() {
