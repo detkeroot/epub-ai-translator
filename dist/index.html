@@ -851,14 +851,19 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                         <div class="grid grid-cols-2 gap-3">
                             <div>
                                 <label class="block text-xs text-gray-400">С главы</label>
-                                <input type="number" id="gg-start" min="1" value="1" class="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 mt-1">
+                                <input type="text" inputmode="numeric" id="gg-start" value="1" class="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 mt-1 focus:outline-none focus:border-indigo-500 transition text-sm font-medium">
                             </div>
                             <div>
                                 <label class="block text-xs text-gray-400">По главу</label>
-                                <input type="number" id="gg-end" min="1" value="1" class="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 mt-1">
+                                <input type="text" inputmode="numeric" id="gg-end" value="1" class="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 mt-1 focus:outline-none focus:border-indigo-500 transition text-sm font-medium">
                             </div>
                         </div>
-                        <div class="mt-3 text-xs text-gray-500" id="gg-total-info">—</div>
+                        <div class="mt-3">
+                            <label class="block text-xs text-gray-400">Глав в одном пакете (последовательный режим)</label>
+                            <input type="number" id="gg-batch-size" value="20" min="1" max="100" class="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 mt-1 focus:outline-none focus:border-indigo-500 transition text-sm">
+                            <p class="text-[11px] text-gray-500 mt-1">Диапазон глав автоматически делится на пакеты и генерируется по очереди.</p>
+                        </div>
+                        <div class="mt-3 text-xs text-indigo-300 font-medium" id="gg-total-info">—</div>
                     </div>
 
                     <div class="bg-white/5 rounded-xl p-4 border border-white/10">
@@ -872,6 +877,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                             <span class="text-sm">Включать примечания</span>
                             <input type="checkbox" id="gg-include-notes" class="w-4 h-4" checked>
                         </div>
+                        <div class="mt-3 pt-3 border-t border-white/10 space-y-1">
+                            <label class="flex items-center gap-2 cursor-pointer text-xs text-indigo-300">
+                                <input type="checkbox" id="gg-filter-relevant" checked class="w-4 h-4 rounded">
+                                <span>Фильтровать контекст (только термины из этих глав)</span>
+                            </label>
+                            <p class="text-[11px] text-gray-500">Не отправляет весь словарь в запрос, исключая повторение старых терминов.</p>
+                        </div>
                     </div>
 
                     <div class="bg-white/5 rounded-xl p-4 border border-white/10">
@@ -884,7 +896,19 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                                 <input type="checkbox" id="gg-auto-apply" checked class="w-4 h-4 rounded">
                                 <span>Авто-применять в глоссарий</span>
                             </label>
-                            <button onclick="glossaryGeneratorRun()" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-lg transition font-medium">
+                            <div id="gg-progress-panel" class="hidden mb-3 p-3 bg-indigo-500/10 border border-indigo-500/30 rounded-xl space-y-2">
+                                <div class="flex items-center justify-between text-xs text-indigo-300 font-medium">
+                                    <span id="gg-progress-status">Генерация...</span>
+                                    <span id="gg-progress-count">0/0</span>
+                                </div>
+                                <div class="w-full bg-white/10 h-2 rounded-full overflow-hidden">
+                                    <div id="gg-progress-bar" class="bg-indigo-600 h-full transition-all duration-300" style="width: 0%"></div>
+                                </div>
+                                <button id="gg-cancel-btn" onclick="cancelGlossaryGenerator()" class="w-full py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg text-xs transition font-medium flex items-center justify-center gap-1">
+                                    <i class="fas fa-stop"></i> Остановить генерацию
+                                </button>
+                            </div>
+                            <button onclick="glossaryGeneratorRun()" id="gg-run-btn" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded-lg transition font-medium">
                                 <i class="fas fa-rocket mr-2"></i>Сгенерировать
                             </button>
                         </div>
@@ -5831,19 +5855,40 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             if (!ggStart.value) ggStart.value = Math.min(1, total);
             if (!ggEnd.value) ggEnd.value = Math.min(2, total);
 
-            const clampRange = () => {
-                let s = parseInt(ggStart.value) || 1;
-                let e = parseInt(ggEnd.value) || s;
-                s = Math.max(1, Math.min(s, total));
-                e = Math.max(1, Math.min(e, total));
-                ggStart.value = s;
-                ggEnd.value = e;
-                document.getElementById('gg-total-info').textContent = `Доступно глав: ${total}. Выбрано: ${Math.min(s, e)}–${Math.max(s, e)}.`;
+            const updateRangeInfo = () => {
+                let s = parseInt(ggStart.value, 10);
+                let e = parseInt(ggEnd.value, 10);
+                if (!isNaN(s) && !isNaN(e)) {
+                    const from = Math.min(s, e);
+                    const to = Math.max(s, e);
+                    const count = Math.max(0, to - from + 1);
+                    const bSize = Math.max(1, parseInt(document.getElementById('gg-batch-size')?.value || '20', 10));
+                    const batches = Math.ceil(count / bSize);
+                    document.getElementById('gg-total-info').textContent = `Доступно: ${total} глав. Выбрано: ${from}–${to} (${count} глав, ${batches} ${batches === 1 ? 'пакет' : 'пакетов'}).`;
+                } else {
+                    document.getElementById('gg-total-info').textContent = `Доступно глав: ${total}.`;
+                }
             };
 
-            ggStart.oninput = clampRange;
-            ggEnd.oninput = clampRange;
-            clampRange();
+            // On input: only update text without overwriting value while typing!
+            ggStart.oninput = updateRangeInfo;
+            ggEnd.oninput = updateRangeInfo;
+            document.getElementById('gg-batch-size').oninput = updateRangeInfo;
+
+            // On blur: clamp if empty or invalid
+            ggStart.onblur = () => {
+                let s = parseInt(ggStart.value, 10);
+                if (isNaN(s) || s < 1) ggStart.value = 1;
+                else if (s > total) ggStart.value = total;
+                updateRangeInfo();
+            };
+            ggEnd.onblur = () => {
+                let e = parseInt(ggEnd.value, 10);
+                if (isNaN(e) || e < 1) ggEnd.value = 1;
+                else if (e > total) ggEnd.value = total;
+                updateRangeInfo();
+            };
+            updateRangeInfo();
 
             document.getElementById('gg-preview').textContent = 'Нажмите «Собрать превью»';
             document.getElementById('gg-result').value = '';
@@ -5898,26 +5943,33 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
         function buildGlossaryGeneratorPrompt(textForAi) {
             const tpl = document.getElementById('glossary-prompt')?.value || DEFAULT_GLOSSARY_PROMPT;
-
-            // Optional context injection inspired by desktop (not strict JSON; compact lines)
-            // For web: keep small (max 150 terms), optionally include notes.
-            const includeNotes = !!document.getElementById('gg-include-notes')?.checked;
+            const includeNotes = __omp_shell("!document.getElementById('gg-include-notes')?.checked;")
+            const filterRelevant = __omp_shell("!document.getElementById('gg-filter-relevant')?.checked;")
 
             let contextBlock = '';
             const allTerms = Object.entries(state.glossary || {});
             if (allTerms.length) {
-                const maxTerms = 120;
-                const slice = allTerms.slice(0, maxTerms);
-                const lines = [];
-                lines.push('--- КОНТЕКСТ: УЖЕ СУЩЕСТВУЮЩИЙ ГЛОССАРИЙ ---');
-                for (const [orig, data] of slice) {
-                    const tr = String(data?.translation || '').trim();
-                    const note = String(data?.note || '').trim();
-                    if (!tr) continue;
-                    lines.push(`"${orig}" = "${tr}"`);
-                    if (includeNotes && note) lines.push(`"${tr}" - "${note}"`);
+                let slice = [];
+                if (filterRelevant && typeof filterGlossary === 'function') {
+                    // Smart contextual filter: only include terms mentioned in this batch!
+                    const relevantObj = filterGlossary(state.glossary, textForAi, 120);
+                    slice = Object.entries(relevantObj);
+                } else {
+                    slice = allTerms.slice(0, 120);
                 }
-                contextBlock = lines.join('\n') + '\n\n';
+
+                if (slice.length > 0) {
+                    const lines = [];
+                    lines.push('--- КОНТЕКСТ: УЖЕ СУЩЕСТВУЮЩИЙ ГЛОССАРИЙ (используй для консистентности) ---');
+                    for (const [orig, data] of slice) {
+                        const tr = String(data?.translation || '').trim();
+                        const note = String(data?.note || '').trim();
+                        if (!tr) continue;
+                        lines.push(`"${orig}" = "${tr}"`);
+                        if (includeNotes && note) lines.push(`"${tr}" - "${note}"`);
+                    }
+                    contextBlock = lines.join('\n') + '\n\n';
+                }
             }
 
             return tpl.replace('{text}', contextBlock + textForAi);
@@ -5957,7 +6009,20 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             }
         }
 
+        let isGlossaryGenerating = false;
+        let cancelGlossaryRequested = false;
+
+        function cancelGlossaryGenerator() {
+            cancelGlossaryRequested = true;
+            if (state.abortController) {
+                try { state.abortController.abort(); } catch {}
+            }
+            log('Остановка AI‑генерации глоссария...', 'warning');
+            showToast('Остановка генерации...', 'warning');
+        }
+
         async function glossaryGeneratorRun() {
+            if (isGlossaryGenerating) return;
             if (!state.provider || !state.model) {
                 showToast('Сначала выберите провайдера и модель', 'warning');
                 switchTab('settings');
@@ -5969,56 +6034,128 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                 return;
             }
 
-            const start = parseInt(document.getElementById('gg-start').value) || 1;
-            const end = parseInt(document.getElementById('gg-end').value) || start;
+            const total = state.epubData.chapters.length;
+            let rawStart = parseInt(document.getElementById('gg-start').value, 10);
+            let rawEnd = parseInt(document.getElementById('gg-end').value, 10);
+            if (isNaN(rawStart)) rawStart = 1;
+            if (isNaN(rawEnd)) rawEnd = rawStart;
 
-            const { from, to, combinedText } = await glossaryGeneratorCollectTextFromChapters(start, end);
-            if (!combinedText.trim()) {
-                showToast('Не удалось собрать текст из выбранных глав', 'error');
-                return;
+            const from = Math.max(1, Math.min(Math.min(rawStart, rawEnd), total));
+            const to = Math.max(1, Math.min(Math.max(rawStart, rawEnd), total));
+            const batchSize = Math.max(1, parseInt(document.getElementById('gg-batch-size')?.value || '20', 10));
+
+            // Divide into batches
+            const batches = [];
+            for (let ch = from; ch <= to; ch += batchSize) {
+                batches.push({ start: ch, end: Math.min(ch + batchSize - 1, to) });
             }
 
-            const prompt = buildGlossaryGeneratorPrompt(combinedText);
-            glossaryGeneratorPreviewPrompt = prompt;
-            document.getElementById('gg-preview').textContent = prompt;
+            const progressPanel = document.getElementById('gg-progress-panel');
+            const progressBar = document.getElementById('gg-progress-bar');
+            const progressStatus = document.getElementById('gg-progress-status');
+            const progressCount = document.getElementById('gg-progress-count');
+            const runBtn = document.getElementById('gg-run-btn');
 
-            const estTokens = Math.round(prompt.length / 3.5);
-            const lim = Math.max(1000, parseInt(document.getElementById('gg-token-limit')?.value) || 60000);
-            if (estTokens > lim) {
-                document.getElementById('gg-preview-warn').innerHTML = `<b>Предупреждение:</b> запрос ≈ <b>${formatNumber(estTokens)}</b> токенов, больше лимита <b>${formatNumber(lim)}</b>.\nУменьшите диапазон глав.`;
-                document.getElementById('gg-preview-warn').classList.remove('hidden');
-                showToast('Запрос слишком большой — уменьшите диапазон', 'warning');
-                return;
+            if (progressPanel) progressPanel.classList.remove('hidden');
+            if (runBtn) {
+                runBtn.disabled = true;
+                runBtn.classList.add('opacity-50');
             }
+
+            isGlossaryGenerating = true;
+            cancelGlossaryRequested = false;
+            state.abortController = new AbortController();
+
+            let totalNewTerms = 0;
+            log(`▶️ Старт последовательной генерации глоссария: главы ${from}–${to} (${batches.length} пакетов по ${batchSize} глав)`, 'info');
+            showToast(`Запуск генерации: ${batches.length} пакетов`, 'info');
 
             try {
-                showToast(`AI‑генерация: главы ${from}–${to}…`, 'info');
-                log(`AI‑генерация глоссария: главы ${from}–${to}…`, 'info');
+                for (let bIdx = 0; bIdx < batches.length; bIdx++) {
+                    if (cancelGlossaryRequested) {
+                        log('⏹️ Генерация глоссария остановлена пользователем', 'warning');
+                        showToast('Генерация остановлена', 'warning');
+                        break;
+                    }
 
-                const response = await callAI(prompt);
-                const cleaned = stripCodeFences(response);
-                const parsed = parseJSON(cleaned);
+                    const batch = batches[bIdx];
+                    const percent = Math.round((bIdx / batches.length) * 100);
+                    if (progressBar) progressBar.style.width = `${percent}%`;
+                    if (progressStatus) progressStatus.textContent = `Пакет ${bIdx + 1}/${batches.length}: главы ${batch.start}–${batch.end}...`;
+                    if (progressCount) progressCount.textContent = `${bIdx + 1}/${batches.length}`;
 
-                if (!parsed || typeof parsed !== 'object') {
-                    document.getElementById('gg-result').value = cleaned;
-                    showToast('Ответ получен, но JSON не распознан. Проверьте вручную.', 'warning');
-                    return;
+                    log(`[Глоссарий] Пакет ${bIdx + 1}/${batches.length} (главы ${batch.start}–${batch.end})...`, 'info');
+
+                    const { combinedText } = await glossaryGeneratorCollectTextFromChapters(batch.start, batch.end);
+                    if (!combinedText.trim()) continue;
+
+                    const prompt = buildGlossaryGeneratorPrompt(combinedText);
+                    document.getElementById('gg-preview').textContent = prompt;
+
+                    try {
+                        const response = await callAI(prompt);
+                        const cleaned = stripCodeFences(response);
+                        const parsed = parseJSON(cleaned);
+
+                        if (parsed && typeof parsed === 'object') {
+                            const newTermsCount = Object.keys(parsed).length;
+                            document.getElementById('gg-result').value = JSON.stringify(parsed, null, 2);
+
+                            // Auto-merge into state.glossary
+                            const autoApply = document.getElementById('gg-auto-apply')?.checked ?? true;
+                            if (autoApply) {
+                                const mode = getGlossaryGeneratorMergeMode();
+                                const beforeCount = Object.keys(state.glossary || {}).length;
+                                
+                                for (const [term, data] of Object.entries(parsed)) {
+                                    const tr = (typeof data === 'string') ? data : (data.translation || data.rus || data.target || '');
+                                    const note = (typeof data === 'object') ? (data.note || data.comment || data.description || '') : '';
+                                    if (!tr) continue;
+
+                                    if (mode === 'supplement') {
+                                        if (!state.glossary[term]) state.glossary[term] = { translation: tr, note };
+                                    } else if (mode === 'update') {
+                                        state.glossary[term] = { translation: tr, note: note || state.glossary[term]?.note || '' };
+                                    } else {
+                                        state.glossary[term] = { translation: tr, note };
+                                    }
+                                }
+                                saveState();
+                                updateGlossaryDisplay();
+                                const afterCount = Object.keys(state.glossary || {}).length;
+                                const addedThisBatch = Math.max(0, afterCount - beforeCount);
+                                totalNewTerms += addedThisBatch;
+
+                                log(`[Глоссарий] Пакет ${bIdx + 1}/${batches.length} ✓: получено ${newTermsCount} терминов (+${addedThisBatch} новых)`, 'success');
+                            } else {
+                                log(`[Глоссарий] Пакет ${bIdx + 1}/${batches.length} ✓: получено ${newTermsCount} терминов (в окне результата)`, 'success');
+                            }
+                        }
+                    } catch (e) {
+                        if (e instanceof OperationCancelledError || cancelGlossaryRequested) break;
+                        log(`[Глоссарий] Ошибка пакета ${bIdx + 1}: ${e.message}`, 'error');
+                    }
+
+                    // Delay between batches to respect RPM
+                    if (bIdx < batches.length - 1 && !cancelGlossaryRequested) {
+                        await sleep(1500);
+                    }
                 }
 
-                glossaryGeneratorLastResult = parsed;
-                document.getElementById('gg-result').value = JSON.stringify(parsed, null, 2);
+                if (progressBar) progressBar.style.width = '100%';
+                if (progressCount) progressCount.textContent = `${batches.length}/${batches.length}`;
+                showToast(`Генерация завершена! Всего терминов в глоссарии: ${Object.keys(state.glossary || {}).length}`, 'success');
+                log(`🎉 AI‑генерация глоссария завершена! Добавлено ${totalNewTerms} терминов. Всего: ${Object.keys(state.glossary || {}).length}`, 'success');
 
-                const autoApply = document.getElementById('gg-auto-apply')?.checked ?? true;
-                if (autoApply) {
-                    glossaryGeneratorMergeResult();
-                } else {
-                    showToast(`Готово: ${Object.keys(parsed).length} терминов`, 'success');
+            } finally {
+                isGlossaryGenerating = false;
+                if (runBtn) {
+                    runBtn.disabled = false;
+                    runBtn.classList.remove('opacity-50');
                 }
-                log(`AI‑генерация: получено ${Object.keys(parsed).length} терминов`, 'success');
-            } catch (e) {
-                console.error(e);
-                showToast(`Ошибка AI‑генерации: ${e?.message || e}`, 'error');
-                log(`AI‑генерация: ошибка: ${e?.message || e}`, 'error');
+                setTimeout(() => {
+                    if (progressPanel) progressPanel.classList.add('hidden');
+                }, 3500);
             }
         }
 
