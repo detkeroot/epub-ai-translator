@@ -542,6 +542,23 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                                     <div class="w-11 h-6 bg-white/20 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
                                 </label>
                             </div>
+                                                        <div class="flex items-center justify-between">
+                                <span class="text-sm">Фолбэк на Google Translate при цензуре</span>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="fallback-google-translate" checked class="sr-only peer">
+                                    <div class="w-11 h-6 bg-white/20 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                                </label>
+                            </div>
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-2">Лимит RPM (запросов в минуту)</label>
+                                <input type="number" id="rpm-limit" value="5" min="1" max="120" step="1" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 focus:outline-none focus:border-indigo-500 transition">
+                                <p class="text-xs text-gray-500 mt-1">Рекомендуется: 4-6 для Gemini Flash. Предотвращает попадание в спам-фильтр Google.</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-2">Задержка между запросами (сек)</label>
+                                <input type="number" id="request-stagger-delay" value="1.5" min="0" max="10" step="0.5" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 focus:outline-none focus:border-indigo-500 transition">
+                                <p class="text-xs text-gray-500 mt-1">Плавная отправка запросов для стабильной работы длинных переводов.</p>
+                            </div>
                             <div class="flex items-center justify-between">
                                 <span class="text-sm">Сохранять оригинал при цензуре</span>
                                 <label class="relative inline-flex items-center cursor-pointer">
@@ -1876,6 +1893,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         // STATE
         // =============================================
         let state = {
+            fullLogHistory: [],
             projectFolderName: 'project_001',
             projectDirHandle: null,
             projectFolderMode: 'auto',
@@ -2059,21 +2077,31 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         }
 
         function log(message, type = 'info') {
+            const timeStr = new Date().toLocaleTimeString();
+            if (!state.fullLogHistory) state.fullLogHistory = [];
+            state.fullLogHistory.push({ time: timeStr, type, message });
+            if (state.fullLogHistory.length > 2000) state.fullLogHistory.shift();
+
             const container = document.getElementById('log-container');
-            const colors = { info: 'text-blue-400', success: 'text-green-400', error: 'text-red-400', warning: 'text-yellow-400' };
-            const icons = { info: 'ℹ️', success: '✅', error: '❌', warning: '⚠️' };
-            if (container.querySelector('.text-gray-500:only-child')) container.innerHTML = '';
-            const entry = document.createElement('div');
-            entry.className = `log-entry py-1 ${colors[type]}`;
-            entry.innerHTML = `<span class="text-gray-500">[${new Date().toLocaleTimeString()}]</span> ${icons[type]} ${escapeHtml(message)}`;
-            container.appendChild(entry);
-            container.scrollTop = container.scrollHeight;
-            eventBus.emit('log', { message, type, time: new Date() });
+            if (container) {
+                const colors = { info: 'text-blue-400', success: 'text-green-400', error: 'text-red-400', warning: 'text-yellow-400' };
+                const icons = { info: 'ℹ️', success: '✅', error: '❌', warning: '⚠️' };
+                if (container.querySelector('.text-gray-500:only-child')) container.innerHTML = '';
+                const entry = document.createElement('div');
+                entry.className = `log-entry py-1 ${colors[type] || 'text-gray-300'}`;
+                entry.innerHTML = `<span class="text-gray-500">[${timeStr}]</span> ${icons[type] || '•'} ${escapeHtml(message)}`;
+                container.appendChild(entry);
+                container.scrollTop = container.scrollHeight;
+            }
+            if (typeof eventBus !== 'undefined' && eventBus.emit) {
+                eventBus.emit('log', { message, type, time: new Date() });
+            }
         }
 
                 async function copyLogToClipboard() {
             const container = document.getElementById('log-container');
-            const logText = container ? container.innerText : '';
+            const logEntries = (state.fullLogHistory && state.fullLogHistory.length > 0) ? state.fullLogHistory.map(e => `[${e.time}] ${e.message}`).join('\n') : (container ? container.innerText : '');
+            const logText = logEntries;
             const activeProvider = state.provider || 'не выбран';
             const activeModel = state.model || 'не выбрана';
             const km = state.keys[state.provider];
@@ -2117,7 +2145,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
         function downloadLog() {
             const container = document.getElementById('log-container');
-            const logText = container ? container.innerText : '';
+            const logEntries = (state.fullLogHistory && state.fullLogHistory.length > 0) ? state.fullLogHistory.map(e => `[${e.time}] ${e.message}`).join('\n') : (container ? container.innerText : '');
+            const logText = logEntries;
             const activeProvider = state.provider || 'не выбран';
             const activeModel = state.model || 'не выбрана';
             const km = state.keys[state.provider];
@@ -2701,12 +2730,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                                     const translated = translatedMap.get(ch.path);
                                     if (typeof translated === 'string' && translated.trim().length > 0) {
                                         resultsByIndex[i] = { ...ch, content: translated };
+                                        await saveChapterResult(resultsByIndex[i]);
                                         log(`Глава ${startIdx + i + 1} ✓ (batch, воркер ${workerNo})`, 'success');
                                     } else {
                                         // fallback to single per chapter (parsing failed for this chapter)
                                         const src = originals.find(o => o.path === ch.path)?.content || '';
                                         const one = await translateChapter(src, chunkSize);
                                         resultsByIndex[i] = { ...ch, content: one };
+                                        await saveChapterResult(resultsByIndex[i]);
                                         log(`Глава ${startIdx + i + 1} ✓ (fallback)`, 'warning');
                                     }
 
@@ -2742,8 +2773,20 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                                             allKeysExhausted = true;
                                             resultsByIndex[i] = { ...chapter, content };
                                         } else if (err instanceof ContentBlockedError) {
-                                            log(`🔞 Глава ${startIdx + i + 1}: цензура`, 'warning');
-                                            resultsByIndex[i] = { ...chapter, content: document.getElementById('keep-censored').checked ? content : '' };
+                                            log(`🔞 Глава ${startIdx + i + 1}: цензура AI модели`, 'warning');
+                                            if (document.getElementById('fallback-google-translate')?.checked) {
+                                                log(`🌐 Фолбэк: перевод главы ${startIdx + i + 1} через Google Web Translate...`, 'info');
+                                                try {
+                                                    const gTrans = await translateWithGoogleWeb(content);
+                                                    resultsByIndex[i] = { ...chapter, content: gTrans };
+                                                    log(`Глава ${startIdx + i + 1} ✓ (Google Web Fallback)`, 'success');
+                                                } catch (gErr) {
+                                                    log(`Фолбэк не удался: ${gErr.message}`, 'error');
+                                                    resultsByIndex[i] = { ...chapter, content: document.getElementById('keep-censored').checked ? content : '' };
+                                                }
+                                            } else {
+                                                resultsByIndex[i] = { ...chapter, content: document.getElementById('keep-censored').checked ? content : '' };
+                                            }
                                         } else if (err instanceof OperationCancelledError) {
                                             log(`Отмена (воркер ${workerNo})`, 'warning');
                                             resultsByIndex[i] = { ...chapter, content };
@@ -2779,6 +2822,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                             } else {
                                 const translated = await translateChapter(content, chunkSize);
                                 resultsByIndex[idx] = { ...chapter, content: translated };
+                                await saveChapterResult(resultsByIndex[idx]);
                                 log(`Глава ${startIdx + idx + 1} ✓ (воркер ${workerNo})`, 'success');
                             }
                         } catch (e) {
@@ -2787,8 +2831,20 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                                 allKeysExhausted = true;
                                 resultsByIndex[idx] = { ...chapter, content };
                             } else if (e instanceof ContentBlockedError) {
-                                log(`🔞 Глава ${startIdx + idx + 1}: цензура`, 'warning');
-                                resultsByIndex[idx] = { ...chapter, content: document.getElementById('keep-censored').checked ? content : '' };
+                                log(`🔞 Глава ${startIdx + idx + 1}: цензура AI модели`, 'warning');
+                                if (document.getElementById('fallback-google-translate')?.checked) {
+                                    log(`🌐 Фолбэк: перевод главы ${startIdx + idx + 1} через Google Web Translate...`, 'info');
+                                    try {
+                                        const gTrans = await translateWithGoogleWeb(content);
+                                        resultsByIndex[idx] = { ...chapter, content: gTrans };
+                                        log(`Глава ${startIdx + idx + 1} ✓ (Google Web Fallback)`, 'success');
+                                    } catch (gErr) {
+                                        log(`Фолбэк не удался: ${gErr.message}`, 'error');
+                                        resultsByIndex[idx] = { ...chapter, content: document.getElementById('keep-censored').checked ? content : '' };
+                                    }
+                                } else {
+                                    resultsByIndex[idx] = { ...chapter, content: document.getElementById('keep-censored').checked ? content : '' };
+                                }
                             } else if (e instanceof OperationCancelledError) {
                                 log(`Отмена (воркер ${workerNo})`, 'warning');
                                 resultsByIndex[idx] = { ...chapter, content };
@@ -3222,7 +3278,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                 document.getElementById('current-key-index').textContent = `${lease.index + 1}/${keyManager.count()}`;
 
                 try {
-                    await keyManager.waitForRateLimitFor(modelConfig.id, apiKey, modelConfig.rpm);
+                    const userRpm = parseInt(document.getElementById('rpm-limit')?.value || 0, 10);
+                    const effectiveRpm = (userRpm > 0) ? userRpm : (modelConfig.rpm || 5);
+                    await keyManager.waitForRateLimitFor(modelConfig.id, apiKey, effectiveRpm);
+
+                    const staggerSec = parseFloat(document.getElementById('request-stagger-delay')?.value || '1.5');
+                    if (staggerSec > 0) await sleep(staggerSec * 1000);
 
                     let result;
                     if (provider === 'gemini' || provider === 'gemini_top') {
@@ -3337,6 +3398,31 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                 if (Number.isFinite(s) && s > 0) return Math.floor(s * 1000);
             }
             return null;
+        }
+
+        
+        // =============================================
+        // GOOGLE WEB TRANSLATE FALLBACK (CENSORSHIP BYPASS)
+        // =============================================
+        async function translateWithGoogleWeb(htmlContent) {
+            if (!htmlContent || !htmlContent.trim()) return htmlContent;
+            
+            const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=ru&dt=t&q=${encodeURIComponent(htmlContent)}`;
+            const response = await fetch(url, {
+                method: 'GET',
+                signal: state.abortController?.signal
+            });
+
+            if (!response.ok) {
+                throw new Error(`Google Web Translate error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (Array.isArray(data) && Array.isArray(data[0])) {
+                const translatedText = data[0].map(item => item[0]).filter(Boolean).join('');
+                return translatedText;
+            }
+            throw new Error('Google Web Translate returned unrecognized response');
         }
 
         async function callGemini(apiKey, modelConfig, prompt) {
@@ -3510,22 +3596,20 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
         function downloadGlossary() {
             if (!Object.keys(state.glossary).length) { showToast('Глоссарий пуст', 'warning'); return; }
-            let content = '═'.repeat(60) + '\n  ГЛОССАРИЙ\n' + '═'.repeat(60) + '\n\n';
-            content += `Терминов: ${Object.keys(state.glossary).length}\nДата: ${new Date().toLocaleString()}\n\n` + '─'.repeat(60) + '\n\n';
 
-            Object.entries(state.glossary).forEach(([term, data], idx) => {
-                content += `${idx + 1}. ${term}\n   → ${data.translation || 'N/A'}\n`;
-                if (data.note) content += `   📝 ${data.note}\n`;
-                content += '\n';
-            });
-
-            const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+            // Export pure lossless JSON (matches PC-translator & AI format perfectly)
+            const jsonText = JSON.stringify(state.glossary, null, 2);
+            const blob = new Blob([jsonText], { type: 'application/json;charset=utf-8' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
-            a.download = 'glossary.txt';
+            const baseName = (state.currentFile?.name || 'glossary').replace(/\.epub$/i, '');
+            a.download = `${baseName}_glossary.json`;
+            document.body.appendChild(a);
             a.click();
-            URL.revokeObjectURL(a.href);
-            log('Глоссарий скачан', 'success');
+            setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 1500);
+
+            showToast('Глоссарий сохранён в JSON (полная совместимость с ПК и мобильной версией)', 'success');
+            log(`Глоссарий сохранён (${Object.keys(state.glossary).length} терминов с примечаниями)`, 'success');
         }
 
         function openInValidator() {
@@ -3544,19 +3628,23 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                 showToast('Сначала остановите перевод', 'warning');
                 return;
             }
-            state.translatedChapters = [];
-            state.stats = { tokensIn: 0, tokensOut: 0, startTime: null };
-            state.currentFile = null;
-            state.epubData = null;
-
+            // Return to translation panel without wiping out translated book chapters!
             document.getElementById('result-panel').classList.add('hidden');
             document.getElementById('progress-panel').classList.add('hidden');
-            document.getElementById('upload-area').classList.remove('hidden');
-            document.getElementById('file-info').classList.add('hidden');
-            document.getElementById('file-input').value = '';
-            document.getElementById('dry-run-btn').disabled = true;
 
-            log('Сброс сессии перевода', 'info');
+            state.isTranslating = false;
+            state.isPaused = false;
+            state.cancelRequested = false;
+
+            if (state.epubData) {
+                document.getElementById('upload-area').classList.add('hidden');
+                document.getElementById('file-info').classList.remove('hidden');
+                updateCachedChaptersBanner();
+                log('Возврат к настройкам книги. Все переведённые главы сохранены.', 'info');
+            } else {
+                document.getElementById('upload-area').classList.remove('hidden');
+                document.getElementById('file-info').classList.add('hidden');
+            }
         }
 
         // =============================================
@@ -3610,41 +3698,62 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                     if (file.name.endsWith('.json')) {
                         parsed = JSON.parse(text);
                     } else {
-                        // Text lines parser (supports: "1. Term -> Translation (Note)", "Term - Translation | Note", "Term = Translation // Note")
+                        // Multi-line and single-line text parser
                         const lines = text.split('\n');
-                        const linePattern = /^(?:\d+[\.\)]\s*)?([^\-—–→=:>]+?)\s*(?:->|=>|→|—|–|-|=|:)\s*(.+)$/;
+                        let currentTerm = null;
+                        let currentTranslation = null;
+                        let currentNote = '';
 
-                        for (let line of lines) {
-                            line = line.trim();
+                        function commitCurrent() {
+                            if (currentTerm && currentTranslation) {
+                                normalized[currentTerm] = { translation: currentTranslation, note: currentNote.trim() };
+                            }
+                            currentTerm = null;
+                            currentTranslation = null;
+                            currentNote = '';
+                        }
+
+                        for (let rawLine of lines) {
+                            const line = rawLine.trim();
                             if (!line) continue;
-                            const m = line.match(linePattern);
-                            if (m) {
-                                const term = m[1].trim();
-                                let rest = m[2].trim();
-                                let note = '';
 
-                                const pipeMatch = rest.match(/^([^|/]+?)\s*(?:[|/]{1,2})\s*(.+)$/);
-                                if (pipeMatch) {
-                                    rest = pipeMatch[1].trim();
-                                    note = pipeMatch[2].trim();
-                                } else {
-                                    const parenMatch = rest.match(/^([^(]+?)\s*\((.+)\)\s*$/);
-                                    if (parenMatch) {
-                                        rest = parenMatch[1].trim();
-                                        note = parenMatch[2].trim();
-                                    } else {
-                                        const brMatch = rest.match(/^([^\[]+?)\s*\[(.+)\]\s*$/);
-                                        if (brMatch) {
-                                            rest = brMatch[1].trim();
-                                            note = brMatch[2].trim();
-                                        }
-                                    }
+                            // Single line format: "Term -> Translation (Note)" or "Term = Translation | Note"
+                            const singleMatch = line.match(/^(?:\d+[\.\)]\s*)?([^\-—–→=:>|]+?)\s*(?:->|=>|→|—|–|-|=|:)\s*([^|/()[\]]+?)(?:\s*(?:[|/]{1,2}|\(|\/\/|\[)\s*(.+?)[)\]]?)?$/);
+                            if (singleMatch && singleMatch[1] && singleMatch[2] && !line.startsWith('→') && !line.startsWith('->') && !line.startsWith('📝')) {
+                                commitCurrent();
+                                const term = singleMatch[1].trim();
+                                const trans = singleMatch[2].trim();
+                                const note = singleMatch[3] ? singleMatch[3].replace(/[)\]]$/, '').trim() : '';
+                                if (term && trans) {
+                                    normalized[term] = { translation: trans, note: note };
                                 }
-                                if (term && rest) {
-                                    normalized[term] = { translation: rest, note: note };
-                                }
+                                continue;
+                            }
+
+                            // Multi-line format (exported from mobile glossary or notes)
+                            // "1. Term" or "Term:"
+                            const termHeaderMatch = line.match(/^(?:\d+[\.\)]\s*)?([^\-—–→=:>]+?)(?::)?$/);
+                            if (termHeaderMatch && !line.startsWith('→') && !line.startsWith('->') && !line.startsWith('📝') && !line.includes('===') && !line.includes('Терминов:')) {
+                                commitCurrent();
+                                currentTerm = termHeaderMatch[1].trim();
+                                continue;
+                            }
+
+                            // Arrow line: "→ Translation" or "-> Translation"
+                            const arrowMatch = line.match(/^(?:→|->|=>)\s*(.+)$/);
+                            if (arrowMatch && currentTerm) {
+                                currentTranslation = arrowMatch[1].trim();
+                                continue;
+                            }
+
+                            // Note line: "📝 Note" or "Note: Note"
+                            const noteMatch = line.match(/^(?:📝|Note:|Примечание:)\s*(.+)$/i);
+                            if (noteMatch && currentTerm) {
+                                currentNote = (currentNote ? currentNote + '; ' : '') + noteMatch[1].trim();
+                                continue;
                             }
                         }
+                        commitCurrent();
                     }
 
                     if (parsed) {
@@ -3679,7 +3788,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                         saveState();
                         updateGlossaryDisplay();
                         showToast(`Импортировано ${importedCount} терминов (с примечаниями)`, 'success');
-                        log(`Импорт глоссария: успешно загружено ${importedCount} терминов`, 'success');
+                        log(`Импорт глоссария: успешно загружено ${importedCount} терминов (с полем note)`, 'success');
                     } else {
                         showToast('Не удалось распознать термины в файле', 'warning');
                     }
@@ -3893,17 +4002,32 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             saveState();
         }
 
-        function saveProjectState() {
-            try {
-                localStorage.setItem('epubTranslatorCurrentProject', JSON.stringify({
-                    chapters: state.translatedChapters,
-                    glossary: state.glossary,
-                    stats: state.stats,
-                    fileName: state.currentFile?.name
-                }));
-            } catch (e) {
-                console.error('Auto-save error:', e);
+        
+        async function saveChapterResult(record) {
+            if (!record || !record.path) return;
+            if (!state.cachedChaptersMap) state.cachedChaptersMap = new Map();
+            state.cachedChaptersMap.set(record.path, record);
+            state.translatedChapters = Array.from(state.cachedChaptersMap.values());
+
+            if (state.bookId) {
+                await ChapterStore.saveChapter(state.bookId, record.path, record.title || '', record.content || '');
             }
+            updateCachedChaptersBanner();
+            await syncProjectArtifactsToDisk();
+        }
+
+        async function saveProjectState() {
+            if (!state.cachedChaptersMap) state.cachedChaptersMap = new Map();
+            for (const ch of state.translatedChapters) {
+                if (ch && ch.path) {
+                    state.cachedChaptersMap.set(ch.path, ch);
+                    if (state.bookId) {
+                        await ChapterStore.saveChapter(state.bookId, ch.path, ch.title || '', ch.content || '');
+                    }
+                }
+            }
+            updateCachedChaptersBanner();
+            await syncProjectArtifactsToDisk();
         }
 
         
@@ -4111,6 +4235,18 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
 
         function loadProjectHistory() { /* already loaded via loadState */ }
+
+                function downloadBlob(blob, filename) {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(a.href);
+            }, 1500);
+        }
 
         function showProjectHistory() {
             const modal = document.getElementById('project-history-modal');
