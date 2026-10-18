@@ -2778,7 +2778,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                                                 log(`🌐 Фолбэк: перевод главы ${startIdx + i + 1} через Google Web Translate...`, 'info');
                                                 try {
                                                     const gTrans = await translateWithGoogleWeb(content);
-                                                    resultsByIndex[i] = { ...chapter, content: gTrans };
+                                                    resultsByIndex[i] = { ...chapter, content: gTrans, isGoogleFallback: true };
                                                     log(`Глава ${startIdx + i + 1} ✓ (Google Web Fallback)`, 'success');
                                                 } catch (gErr) {
                                                     log(`Фолбэк не удался: ${gErr.message}`, 'error');
@@ -2836,7 +2836,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                                     log(`🌐 Фолбэк: перевод главы ${startIdx + idx + 1} через Google Web Translate...`, 'info');
                                     try {
                                         const gTrans = await translateWithGoogleWeb(content);
-                                        resultsByIndex[idx] = { ...chapter, content: gTrans };
+                                        resultsByIndex[idx] = { ...chapter, content: gTrans, isGoogleFallback: true };
                                         log(`Глава ${startIdx + idx + 1} ✓ (Google Web Fallback)`, 'success');
                                     } catch (gErr) {
                                         log(`Фолбэк не удался: ${gErr.message}`, 'error');
@@ -3419,7 +3419,19 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
             const data = await response.json();
             if (Array.isArray(data) && Array.isArray(data[0])) {
-                const translatedText = data[0].map(item => item[0]).filter(Boolean).join('');
+                let translatedText = data[0].map(item => item[0]).filter(Boolean).join('');
+                
+                // Prepend warning banner so the reader and editor immediately know it was Google Fallback
+                const bannerHtml = '<blockquote class="filtered-chapter-warning" style="margin: 1.5em 0; padding: 1em 1.2em; border-left: 4px solid #f59e0b; background: rgba(245, 158, 11, 0.12); color: #f59e0b; font-size: 0.9em; border-radius: 6px; line-height: 1.5;">' +
+                    '⚠️ <b>Внимание:</b> Данная глава была отфильтрована цензурой нейросети (Safety Filter) и переведена в автоматическом режиме через базовый переводчик Google Translate.' +
+                    '</blockquote>\n';
+                
+                if (/<body[^>]*>/i.test(translatedText)) {
+                    translatedText = translatedText.replace(/(<body[^>]*>)/i, `$1\n${bannerHtml}`);
+                } else {
+                    translatedText = bannerHtml + translatedText;
+                }
+                
                 return translatedText;
             }
             throw new Error('Google Web Translate returned unrecognized response');
@@ -3846,11 +3858,15 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             container.innerHTML = chapters.map((ch, i) => {
                 const isValidated = state.validatorData.validated.has(i);
                 const isCurrent = state.validatorData.currentIndex === i;
+                const isGoogleFallback = Boolean(ch.isGoogleFallback || (typeof ch.content === 'string' && ch.content.includes('filtered-chapter-warning')));
                 return `
                     <div onclick="selectValidatorChapter(${i})" class="chapter-row px-3 py-2 rounded-lg cursor-pointer transition ${isCurrent ? 'selected' : ''} ${isValidated ? 'opacity-50' : ''}">
-                        <div class="flex items-center gap-2">
-                            <i class="fas fa-${isValidated ? 'check-circle text-green-400' : 'circle text-gray-500'} text-xs"></i>
-                            <span class="text-sm truncate">${escapeHtml(ch.title || `Глава ${i + 1}`)}</span>
+                        <div class="flex items-center justify-between gap-2">
+                            <div class="flex items-center gap-2 min-w-0">
+                                <i class="fas fa-${isValidated ? 'check-circle text-green-400' : 'circle text-gray-500'} text-xs flex-shrink-0"></i>
+                                <span class="text-sm truncate">${escapeHtml(ch.title || `Глава ${i + 1}`)}</span>
+                            </div>
+                            ${isGoogleFallback ? '<span class="px-1.5 py-0.5 rounded text-[10px] bg-yellow-500/20 text-yellow-300 font-mono flex-shrink-0 flex items-center gap-1" title="Отфильтровано цензурой нейросети: переведено Google Translate"><i class="fas fa-shield-alt text-[9px]"></i> Google</span>' : ''}
                         </div>
                     </div>
                 `;
@@ -3865,7 +3881,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             state.validatorData.currentIndex = index;
             const chapter = state.validatorData.chapters[index];
 
-            document.getElementById('current-chapter-name').textContent = chapter.title || `Глава ${index + 1}`;
+                        const isGoogleFallback = Boolean(chapter.isGoogleFallback || (typeof chapter.content === 'string' && chapter.content.includes('filtered-chapter-warning')));
+            const titleText = chapter.title || `Глава ${index + 1}`;
+            document.getElementById('current-chapter-name').innerHTML = `${escapeHtml(titleText)} ${isGoogleFallback ? '<span class="px-2 py-0.5 rounded text-xs bg-yellow-500/20 text-yellow-300 font-medium ml-2"><i class="fas fa-shield-alt mr-1"></i>Google Translate (фильтр цензуры)</span>' : ''}`;
 
             ['text', 'code', 'punct'].forEach(mode => {
                 const btn = document.getElementById(`view-${mode}`);
