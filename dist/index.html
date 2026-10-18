@@ -2074,9 +2074,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                                 <span class="text-gray-400 mx-2">→</span>
                                 <span class="font-medium">${safeTranslationHtml}</span>
                             </div>
-                            <button onclick='removeGlossaryTerm(${termJs})' class="text-gray-400 hover:text-red-400 transition ml-2">
-                                <i class="fas fa-times"></i>
-                            </button>
+                            <div class="flex items-center gap-2 ml-2 flex-shrink-0">
+                                <button onclick='editGlossaryTerm(${termJs})' class="text-gray-400 hover:text-indigo-400 transition p-1" title="Редактировать термин">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button onclick='removeGlossaryTerm(${termJs})' class="text-gray-400 hover:text-red-400 transition p-1" title="Удалить термин">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
                         </div>
                         ${data.note ? `<p class="text-sm text-gray-400 mt-2">${safeNoteHtml}</p>` : ''}
                     </div>
@@ -2949,25 +2954,6 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             const startInner = openIdx + openTag.length;
             const lower = src.toLowerCase();
             const closeIdx = lower.lastIndexOf('</body>');
-            if (closeIdx === -1) {
-                return { hasBody: false, prefix: '', bodyInner: src, suffix: '' };
-            }
-
-            return {
-                hasBody: true,
-                prefix: src.slice(0, startInner),
-                bodyInner: src.slice(startInner, closeIdx),
-                suffix: src.slice(closeIdx)
-            };
-        }
-
-        function extractBodyInnerFromAnyHtml(translated) {
-            const s = String(translated || '');
-            const openMatch = s.match(/<body\b[^>]*>/i);
-            if (!openMatch) return s;
-            const openIdx = openMatch.index ?? s.toLowerCase().indexOf('<body');
-            const startInner = openIdx + openMatch[0].length;
-            const closeIdx = s.toLowerCase().lastIndexOf('</body>');
             if (closeIdx === -1 || closeIdx < startInner) return s;
             return s.slice(startInner, closeIdx);
         }
@@ -3796,6 +3782,53 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             document.getElementById('new-term-note').value = '';
 
             showToast('Термин добавлен', 'success');
+        }
+
+        
+        // =============================================
+        // GLOSSARY TERM EDITING
+        // =============================================
+        let editingTermKey = null;
+
+        function editGlossaryTerm(term) {
+            if (!state.glossary || !state.glossary[term]) return;
+            editingTermKey = term;
+            const data = state.glossary[term];
+
+            document.getElementById('edit-term-original').value = term;
+            document.getElementById('edit-term-translation').value = data.translation || '';
+            document.getElementById('edit-term-note').value = data.note || '';
+
+            const modal = document.getElementById('glossary-edit-modal');
+            if (modal) modal.classList.remove('hidden');
+        }
+
+        function hideGlossaryEditModal() {
+            const modal = document.getElementById('glossary-edit-modal');
+            if (modal) modal.classList.add('hidden');
+            editingTermKey = null;
+        }
+
+        function saveEditedGlossaryTerm() {
+            if (!editingTermKey || !state.glossary) return;
+            const tr = document.getElementById('edit-term-translation')?.value?.trim();
+            const note = document.getElementById('edit-term-note')?.value?.trim() || '';
+
+            if (!tr) {
+                showToast('Перевод не может быть пустым', 'warning');
+                return;
+            }
+
+            state.glossary[editingTermKey] = {
+                translation: tr,
+                note: note
+            };
+
+            saveState();
+            updateGlossaryDisplay();
+            hideGlossaryEditModal();
+            showToast(`Термин «${editingTermKey}» обновлён`, 'success');
+            log(`Глоссарий: обновлен термин «${editingTermKey}» → «${tr}»`, 'info');
         }
 
         function removeGlossaryTerm(term) {
@@ -5943,8 +5976,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
         function buildGlossaryGeneratorPrompt(textForAi) {
             const tpl = document.getElementById('glossary-prompt')?.value || DEFAULT_GLOSSARY_PROMPT;
-            const includeNotes = __omp_shell("!document.getElementById('gg-include-notes')?.checked;")
-            const filterRelevant = __omp_shell("!document.getElementById('gg-filter-relevant')?.checked;")
+            const includeNotes = Boolean(document.getElementById('gg-include-notes')?.checked);
+            const filterRelevant = Boolean(document.getElementById('gg-filter-relevant')?.checked);
+            const mergeMode = (typeof getGlossaryGeneratorMergeMode === 'function') ? getGlossaryGeneratorMergeMode() : 'supplement';
 
             let contextBlock = '';
             const allTerms = Object.entries(state.glossary || {});
@@ -5960,7 +5994,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
                 if (slice.length > 0) {
                     const lines = [];
-                    lines.push('--- КОНТЕКСТ: УЖЕ СУЩЕСТВУЮЩИЙ ГЛОССАРИЙ (используй для консистентности) ---');
+                    if (mergeMode === 'update') {
+                        lines.push('--- РЕЖИМ ОБНОВЛЕНИЯ: Проанализируй контекст глав. Если для уже существующего термина появился более точный перевод, правильный пол персонажа, фамилия или титул — ОБНОВИ его! Новые найденные термины добавь. ---');
+                    } else {
+                        lines.push('--- КОНТЕКСТ: УЖЕ СУЩЕСТВУЮЩИЙ ГЛОССАРИЙ (используй для консистентности) ---');
+                    }
                     for (const [orig, data] of slice) {
                         const tr = String(data?.translation || '').trim();
                         const note = String(data?.note || '').trim();
@@ -6714,5 +6752,68 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
         // =============================================
     </script>
+    <!-- Edit Glossary Term Modal -->
+    <div id="glossary-edit-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-[9999] hidden flex items-center justify-center p-4">
+        <div class="card-gradient rounded-2xl border border-white/10 max-w-lg w-full p-6 space-y-4 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-white/10 pb-3">
+                <h3 class="font-semibold text-lg flex items-center gap-2 text-indigo-300">
+                    <i class="fas fa-edit text-indigo-400"></i> Редактирование термина
+                </h3>
+                <button onclick="hideGlossaryEditModal()" class="text-gray-400 hover:text-white transition"><i class="fas fa-times text-xl"></i></button>
+            </div>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">Оригинал (термин)</label>
+                    <input type="text" id="edit-term-original" class="w-full bg-white/5 border border-white/20 rounded-xl px-4 py-2.5 text-sm text-gray-300 font-medium focus:outline-none" readonly>
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">Перевод на русский</label>
+                    <input type="text" id="edit-term-translation" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 transition">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">Примечание (пол, род, описание, тип)</label>
+                    <textarea id="edit-term-note" rows="3" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 transition resize-none" placeholder="Персонаж; Мужчина; Глава клана..."></textarea>
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 pt-2 border-t border-white/10">
+                <button onclick="hideGlossaryEditModal()" class="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-sm transition">Отмена</button>
+                <button onclick="saveEditedGlossaryTerm()" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium transition flex items-center gap-1.5 shadow-lg">
+                    <i class="fas fa-check"></i> Сохранить
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Glossary Term Modal -->
+    <div id="glossary-edit-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-[9999] hidden flex items-center justify-center p-4">
+        <div class="card-gradient rounded-2xl border border-white/10 max-w-lg w-full p-6 space-y-4 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-white/10 pb-3">
+                <h3 class="font-semibold text-lg flex items-center gap-2 text-indigo-300">
+                    <i class="fas fa-edit text-indigo-400"></i> Редактирование термина
+                </h3>
+                <button onclick="hideGlossaryEditModal()" class="text-gray-400 hover:text-white transition"><i class="fas fa-times text-xl"></i></button>
+            </div>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">Оригинал (термин)</label>
+                    <input type="text" id="edit-term-original" class="w-full bg-white/5 border border-white/20 rounded-xl px-4 py-2.5 text-sm text-gray-300 font-medium focus:outline-none" readonly>
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">Перевод на русский</label>
+                    <input type="text" id="edit-term-translation" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 transition">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 mb-1">Примечание (пол, род, описание, тип)</label>
+                    <textarea id="edit-term-note" rows="3" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 transition resize-none" placeholder="Персонаж; Мужчина; Глава клана..."></textarea>
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 pt-2 border-t border-white/10">
+                <button onclick="hideGlossaryEditModal()" class="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-sm transition">Отмена</button>
+                <button onclick="saveEditedGlossaryTerm()" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium transition flex items-center gap-1.5 shadow-lg">
+                    <i class="fas fa-check"></i> Сохранить
+                </button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
