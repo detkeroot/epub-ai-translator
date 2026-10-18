@@ -209,6 +209,20 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                                 </div>
                             </div>
 
+                            <div id="cached-chapters-banner" class="hidden mt-4 p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl flex flex-wrap items-center justify-between gap-2 text-sm">
+                                <div>
+                                    <span class="text-indigo-300"><i class="fas fa-history mr-1"></i> Сохранено в кэше: <b id="cached-count-num">0</b> из <b id="cached-total-num">0</b> глав</span>
+                                </div>
+                                <div class="flex gap-2">
+                                    <button onclick="resumeUntranslatedChapters()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-medium transition">
+                                        <i class="fas fa-bolt mr-1"></i> Продолжить с непереведённых
+                                    </button>
+                                    <button onclick="clearCurrentBookCache()" class="px-2.5 py-1.5 bg-white/10 hover:bg-red-500/20 text-gray-400 hover:text-red-400 rounded-lg text-xs transition" title="Очистить кэш перевода этой книги">
+                                        Сбросить
+                                    </button>
+                                </div>
+                            </div>
+
                             <div class="mt-4 p-4 bg-white/5 rounded-xl">
                                 <div class="flex items-center gap-4 mb-3">
                                     <label class="flex items-center gap-2 cursor-pointer">
@@ -309,7 +323,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                                 <h3 class="font-semibold flex items-center gap-2">
                                     <i class="fas fa-terminal text-indigo-400"></i> Лог
                                 </h3>
-                                <div class="flex gap-2">
+                                <div class="flex items-center gap-3">
+                                    <button onclick="copyLogToClipboard()" class="text-indigo-400 hover:text-indigo-300 transition text-sm flex items-center gap-1 font-medium" title="Скопировать лог с диагностикой">
+                                        <i class="fas fa-copy"></i> Копировать лог
+                                    </button>
                                     <button onclick="downloadLog()" class="text-gray-400 hover:text-white transition text-sm" title="Скачать лог">
                                         <i class="fas fa-download"></i>
                                     </button>
@@ -1446,6 +1463,23 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                 return now >= exhaustedAtMs + (24 * 3600 * 1000);
             }
 
+            getMinPauseRemainingMs(modelId) {
+                const now = Date.now();
+                let minWait = Infinity;
+                let hasPaused = false;
+                for (const key of this.keys) {
+                    const status = this._getStatusForModel(key, modelId);
+                    this._normalizeAvailability(status);
+                    if (status.exhaustedLevel === 0) return 0; // Key is ready right now
+                    if (status.exhaustedLevel === 1 && status.pausedUntil) {
+                        hasPaused = true;
+                        const rem = status.pausedUntil - now;
+                        if (rem > 0 && rem < minWait) minWait = rem;
+                    }
+                }
+                return hasPaused && minWait !== Infinity ? Math.max(1000, minWait) : null;
+            }
+
             getCurrent() { return this.keys.length > 0 ? this.keys[this.currentIndex] : null; }
             getCurrentIndex() { return this.currentIndex; }
 
@@ -1723,9 +1757,94 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         };
 
         // =============================================
+        // PERSISTENT CHAPTER STORE (IndexedDB)
+        // =============================================
+        const ChapterStore = {
+            db: null,
+            async init() {
+                if (this.db) return this.db;
+                return new Promise((resolve) => {
+                    if (typeof indexedDB === 'undefined') {
+                        console.warn('IndexedDB unavailable, chapter caching disabled');
+                        return resolve(null);
+                    }
+                    const req = indexedDB.open('EpubTranslatorDB', 1);
+                    req.onupgradeneeded = (e) => {
+                        const db = e.target.result;
+                        if (!db.objectStoreNames.contains('chapters')) {
+                            const store = db.createObjectStore('chapters', { keyPath: 'id' });
+                            store.createIndex('bookId', 'bookId', { unique: false });
+                        }
+                    };
+                    req.onsuccess = (e) => {
+                        this.db = e.target.result;
+                        resolve(this.db);
+                    };
+                    req.onerror = () => {
+                        console.warn('IndexedDB open error');
+                        resolve(null);
+                    };
+                });
+            },
+            async saveChapter(bookId, path, title, content) {
+                const db = await this.init();
+                if (!db || !bookId || !path) return false;
+                return new Promise((resolve) => {
+                    try {
+                        const tx = db.transaction('chapters', 'readwrite');
+                        tx.objectStore('chapters').put({
+                            id: `${bookId}::${path}`,
+                            bookId,
+                            path,
+                            title: title || '',
+                            content: content || '',
+                            updatedAt: Date.now()
+                        });
+                        tx.oncomplete = () => resolve(true);
+                        tx.onerror = () => resolve(false);
+                    } catch (e) { resolve(false); }
+                });
+            },
+            async getBookChapters(bookId) {
+                const db = await this.init();
+                if (!db || !bookId) return [];
+                return new Promise((resolve) => {
+                    try {
+                        const tx = db.transaction('chapters', 'readonly');
+                        const store = tx.objectStore('chapters');
+                        const index = store.index('bookId');
+                        const req = index.getAll(bookId);
+                        req.onsuccess = () => resolve(req.result || []);
+                        req.onerror = () => resolve([]);
+                    } catch (e) { resolve([]); }
+                });
+            },
+            async clearBook(bookId) {
+                const db = await this.init();
+                if (!db || !bookId) return false;
+                return new Promise((resolve) => {
+                    try {
+                        const tx = db.transaction('chapters', 'readwrite');
+                        const store = tx.objectStore('chapters');
+                        const index = store.index('bookId');
+                        const req = index.getAllKeys(bookId);
+                        req.onsuccess = () => {
+                            const keys = req.result || [];
+                            for (const k of keys) store.delete(k);
+                        };
+                        tx.oncomplete = () => resolve(true);
+                        tx.onerror = () => resolve(false);
+                    } catch (e) { resolve(false); }
+                });
+            }
+        };
+
+        // =============================================
         // STATE
         // =============================================
         let state = {
+            bookId: null,
+            cachedChaptersMap: new Map(),
             abortController: null,
             thinkingEnabled: true,
             thinkingLevel: 'minimal',
@@ -1915,11 +2034,74 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             eventBus.emit('log', { message, type, time: new Date() });
         }
 
+                async function copyLogToClipboard() {
+            const container = document.getElementById('log-container');
+            const logText = container ? container.innerText : '';
+            const activeProvider = state.provider || 'не выбран';
+            const activeModel = state.model || 'не выбрана';
+            const km = state.keys[state.provider];
+            const keysCount = km ? km.count() : 0;
+            const cachedCount = state.cachedChaptersMap ? state.cachedChaptersMap.size : 0;
+            const totalChaps = state.epubData?.chapters?.length || 0;
+
+            const diagHeader = [
+                '=== EPUB TRANSLATOR DIAGNOSTIC REPORT ===',
+                `Timestamp: ${new Date().toISOString()}`,
+                `App Version: v9.9.0 Mobile/Web`,
+                `User-Agent: ${navigator.userAgent}`,
+                `Book File: ${state.currentFile?.name || 'не загружен'} (${totalChaps} глав)`,
+                `Provider: ${activeProvider}, Model: ${activeModel}`,
+                `Total Keys: ${keysCount}`,
+                `Thinking Mode: ${document.getElementById('thinking-enabled')?.checked ? 'ON' : 'OFF'} (Level: ${document.getElementById('thinking-level-select')?.value || 'minimal'})`,
+                `Cached Translated Chapters: ${cachedCount} / ${totalChaps}`,
+                '===========================================\n'
+            ].join('\n');
+
+            const fullReport = diagHeader + logText;
+
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(fullReport);
+                } else {
+                    const ta = document.createElement('textarea');
+                    ta.value = fullReport;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                }
+                showToast('Диагностический лог скопирован в буфер обмена', 'success');
+            } catch (e) {
+                showToast('Не удалось скопировать лог', 'error');
+            }
+        }
+
         function clearLog() { document.getElementById('log-container').innerHTML = '<div class="text-gray-500">Лог очищен.</div>'; }
 
         function downloadLog() {
             const container = document.getElementById('log-container');
-            const text = container.innerText;
+            const logText = container ? container.innerText : '';
+            const activeProvider = state.provider || 'не выбран';
+            const activeModel = state.model || 'не выбрана';
+            const km = state.keys[state.provider];
+            const keysCount = km ? km.count() : 0;
+            const cachedCount = state.cachedChaptersMap ? state.cachedChaptersMap.size : 0;
+            const totalChaps = state.epubData?.chapters?.length || 0;
+
+            const diagHeader = [
+                '=== EPUB TRANSLATOR DIAGNOSTIC REPORT ===',
+                `Timestamp: ${new Date().toISOString()}`,
+                `App Version: v9.9.0 Mobile/Web`,
+                `User-Agent: ${navigator.userAgent}`,
+                `Book File: ${state.currentFile?.name || 'не загружен'} (${totalChaps} глав)`,
+                `Provider: ${activeProvider}, Model: ${activeModel}`,
+                `Total Keys: ${keysCount}`,
+                `Thinking Mode: ${document.getElementById('thinking-enabled')?.checked ? 'ON' : 'OFF'} (Level: ${document.getElementById('thinking-level-select')?.value || 'minimal'})`,
+                `Cached Translated Chapters: ${cachedCount} / ${totalChaps}`,
+                '===========================================\n'
+            ].join('\n');
+
+            const text = diagHeader + logText;
             const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
@@ -2126,6 +2308,69 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         }
         function handleFileSelect(e) { if (e.target.files[0]) processFile(e.target.files[0]); }
 
+        
+        function updateCachedChaptersBanner() {
+            const banner = document.getElementById('cached-chapters-banner');
+            const countNum = document.getElementById('cached-count-num');
+            const totalNum = document.getElementById('cached-total-num');
+            if (!banner || !state.epubData?.chapters) return;
+
+            const total = state.epubData.chapters.length;
+            const cachedCount = state.cachedChaptersMap ? state.cachedChaptersMap.size : 0;
+
+            if (cachedCount > 0) {
+                if (countNum) countNum.textContent = cachedCount;
+                if (totalNum) totalNum.textContent = total;
+                banner.classList.remove('hidden');
+            } else {
+                banner.classList.add('hidden');
+            }
+        }
+
+        function resumeUntranslatedChapters() {
+            if (!state.epubData?.chapters) return;
+            const chapters = state.epubData.chapters;
+            let firstUntranslated = -1;
+
+            for (let i = 0; i < chapters.length; i++) {
+                if (!state.cachedChaptersMap.has(chapters[i].path)) {
+                    firstUntranslated = i;
+                    break;
+                }
+            }
+
+            if (firstUntranslated === -1) {
+                showToast('Все главы этой книги уже есть в кэше!', 'info');
+                return;
+            }
+
+            const partialCheckbox = document.getElementById('partial-translation');
+            if (partialCheckbox) {
+                partialCheckbox.checked = true;
+                togglePartialTranslation();
+            }
+
+            const startInput = document.getElementById('start-chapter');
+            const endInput = document.getElementById('end-chapter');
+            if (startInput) startInput.value = firstUntranslated + 1;
+            if (endInput) endInput.value = chapters.length;
+
+            showToast(`Выбран диапазон с ${firstUntranslated + 1} по ${chapters.length} главу`, 'success');
+            log(`Продолжение: выбраны непереведённые главы ${firstUntranslated + 1}–${chapters.length}`, 'info');
+        }
+
+        async function clearCurrentBookCache() {
+            if (!confirm('Очистить сохранённый кэш перевода для этой книги?')) return;
+            if (state.bookId) {
+                await ChapterStore.clearBook(state.bookId);
+            }
+            state.cachedChaptersMap = new Map();
+            state.translatedChapters = [];
+            updateCachedChaptersBanner();
+            showToast('Кэш перевода книги очищен', 'info');
+            log('Кэш книги очищен пользователем', 'warning');
+        }
+
         function togglePartialTranslation() {
             const enabled = document.getElementById('partial-translation').checked;
             document.getElementById('chapter-range').classList.toggle('hidden', !enabled);
@@ -2142,6 +2387,15 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                 state.epubData = { zip, chapters: [] };
                 const chapters = await parseEpubStructure(zip);
                 state.epubData.chapters = chapters;
+                state.bookId = (file.name || 'book') + '_' + chapters.length;
+
+                // Load cached chapters from persistent ChapterStore
+                state.cachedChaptersMap = new Map();
+                const cachedChapters = await ChapterStore.getBookChapters(state.bookId);
+                for (const ch of cachedChapters) {
+                    if (ch && ch.path) state.cachedChaptersMap.set(ch.path, ch);
+                }
+                state.translatedChapters = Array.from(state.cachedChaptersMap.values());
 
                 let totalChars = 0;
                 for (const ch of chapters) {
@@ -2163,6 +2417,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
                 document.getElementById('upload-area').classList.add('hidden');
                 document.getElementById('file-info').classList.remove('hidden');
+                updateCachedChaptersBanner();
                 document.getElementById('dry-run-btn').disabled = false;
                 log(`${chapters.length} глав, ${formatNumber(totalChars)} символов`, 'success');
             } catch (e) {
@@ -2244,7 +2499,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
             state.isTranslating = true; state.cancelRequested = false; state.isPaused = false;
             state.abortController = new AbortController();
-            state.translatedChapters = [];
+            // Preserve already cached chapters instead of wiping them!
+            if (!state.cachedChaptersMap) state.cachedChaptersMap = new Map();
+            state.translatedChapters = Array.from(state.cachedChaptersMap.values());
             state.stats = { tokensIn: 0, tokensOut: 0, startTime: Date.now() };
 
             document.getElementById('file-info').classList.add('hidden');
@@ -2898,12 +3155,31 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             }
 
             const totalAttempts = Math.max(1, keyManager.count()) * maxRetries;
+            let attempt = 0;
 
-            for (let attempt = 0; attempt < totalAttempts; attempt++) {
+            while (attempt < totalAttempts) {
                 if (state.cancelRequested) throw new OperationCancelledError('Cancelled');
 
                 const lease = await keyManager.acquireKey(modelConfig.id);
-                if (!lease) { await sleep(250); continue; }
+                if (!lease) {
+                    // Check if keys are temporarily paused (429 cooldown / yellow zone)
+                    const waitMs = keyManager.getMinPauseRemainingMs(modelConfig.id);
+                    if (waitMs !== null && waitMs > 0) {
+                        const waitSec = Math.ceil(waitMs / 1000);
+                        log(`⏳ Все ключи на паузе (лимит 429). Ждём кулдаун ${waitSec}с без сброса перевода...`, 'warning');
+                        // Cooldown wait without burning attempts counter
+                        const waitEnd = Date.now() + waitMs + 600;
+                        while (Date.now() < waitEnd) {
+                            if (state.cancelRequested) throw new OperationCancelledError('Cancelled');
+                            await sleep(1000);
+                        }
+                        continue;
+                    }
+
+                    attempt++;
+                    await sleep(500);
+                    continue;
+                }
 
                 const apiKey = lease.key;
                 document.getElementById('current-key-index').textContent = `${lease.index + 1}/${keyManager.count()}`;
@@ -3151,7 +3427,19 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
             const originalZip = state.epubData.zip;
             const outZip = new JSZip();
-            const translationMap = new Map(state.translatedChapters.map(ch => [ch.path, ch.content]));
+
+            // Merge ALL translated chapters across all runs from persistent cache
+            const translationMap = new Map();
+            if (state.cachedChaptersMap) {
+                for (const [p, ch] of state.cachedChaptersMap.entries()) {
+                    if (ch && ch.content) translationMap.set(p, ch.content);
+                }
+            }
+            for (const ch of state.translatedChapters) {
+                if (ch && ch.path && ch.content) translationMap.set(ch.path, ch.content);
+            }
+
+            log(`Сборка EPUB: заменено переведённых глав: ${translationMap.size} из ${state.epubData.chapters.length}`, 'info');
 
             const names = Object.keys(originalZip.files);
             let processed = 0;
@@ -3279,34 +3567,88 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             reader.onload = (e) => {
                 try {
                     const text = e.target.result;
-                    let parsed;
+                    let parsed = null;
+                    const normalized = {};
 
                     if (file.name.endsWith('.json')) {
                         parsed = JSON.parse(text);
                     } else {
-                        parsed = {};
+                        // Text lines parser (supports: "1. Term -> Translation (Note)", "Term - Translation | Note", "Term = Translation // Note")
                         const lines = text.split('\n');
-                        let currentTerm = null;
+                        const linePattern = /^(?:\d+[\.\)]\s*)?([^\-—–→=:>]+?)\s*(?:->|=>|→|—|–|-|=|:)\s*(.+)$/;
 
-                        for (const line of lines) {
-                            const termMatch = line.match(/^\d+\.\s*(.+)$/);
-                            if (termMatch) {
-                                currentTerm = termMatch[1].trim();
-                            } else if (currentTerm && line.includes('→')) {
-                                const translation = line.split('→')[1]?.trim();
-                                if (translation) parsed[currentTerm] = { translation, note: '' };
+                        for (let line of lines) {
+                            line = line.trim();
+                            if (!line) continue;
+                            const m = line.match(linePattern);
+                            if (m) {
+                                const term = m[1].trim();
+                                let rest = m[2].trim();
+                                let note = '';
+
+                                const pipeMatch = rest.match(/^([^|/]+?)\s*(?:[|/]{1,2})\s*(.+)$/);
+                                if (pipeMatch) {
+                                    rest = pipeMatch[1].trim();
+                                    note = pipeMatch[2].trim();
+                                } else {
+                                    const parenMatch = rest.match(/^([^(]+?)\s*\((.+)\)\s*$/);
+                                    if (parenMatch) {
+                                        rest = parenMatch[1].trim();
+                                        note = parenMatch[2].trim();
+                                    } else {
+                                        const brMatch = rest.match(/^([^\[]+?)\s*\[(.+)\]\s*$/);
+                                        if (brMatch) {
+                                            rest = brMatch[1].trim();
+                                            note = brMatch[2].trim();
+                                        }
+                                    }
+                                }
+                                if (term && rest) {
+                                    normalized[term] = { translation: rest, note: note };
+                                }
                             }
                         }
                     }
 
-                    if (typeof parsed === 'object') {
-                        state.glossary = { ...state.glossary, ...parsed };
+                    if (parsed) {
+                        if (Array.isArray(parsed)) {
+                            for (const item of parsed) {
+                                if (!item || typeof item !== 'object') continue;
+                                const key = item.key || item.term || item.source || item.src || item.original || item.name;
+                                const trans = item.translation || item.rus || item.target || item.val || item.trans || '';
+                                const note = item.note || item.comment || item.description || item.type || item.notes || '';
+                                if (key && trans) {
+                                    normalized[String(key).trim()] = { translation: String(trans).trim(), note: String(note).trim() };
+                                }
+                            }
+                        } else if (typeof parsed === 'object') {
+                            for (const [key, val] of Object.entries(parsed)) {
+                                if (typeof val === 'string') {
+                                    normalized[key.trim()] = { translation: val.trim(), note: '' };
+                                } else if (val && typeof val === 'object') {
+                                    const trans = val.translation || val.rus || val.target || val.val || val.trans || '';
+                                    const note = val.note || val.comment || val.description || val.type || val.notes || '';
+                                    if (trans) {
+                                        normalized[key.trim()] = { translation: String(trans).trim(), note: String(note).trim() };
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    const importedCount = Object.keys(normalized).length;
+                    if (importedCount > 0) {
+                        state.glossary = { ...state.glossary, ...normalized };
                         saveState();
                         updateGlossaryDisplay();
-                        showToast(`Импортировано ${Object.keys(parsed).length} терминов`, 'success');
+                        showToast(`Импортировано ${importedCount} терминов (с примечаниями)`, 'success');
+                        log(`Импорт глоссария: успешно загружено ${importedCount} терминов`, 'success');
+                    } else {
+                        showToast('Не удалось распознать термины в файле', 'warning');
                     }
                 } catch (err) {
-                    showToast('Ошибка импорта', 'error');
+                    console.error('Glossary import error:', err);
+                    showToast('Ошибка импорта: проверьте формат файла', 'error');
                 }
             };
             reader.readAsText(file);
