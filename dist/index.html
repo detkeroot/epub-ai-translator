@@ -467,7 +467,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                     </div>
                     <div class="lg:col-span-2">
                         <div class="card-gradient rounded-2xl p-6 border border-white/10">
-                            <h3 class="font-semibold text-lg mb-4 flex items-center gap-2"><i class="fas fa-list text-indigo-400"></i> Сохранённые ключи</h3>
+                            <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+                                <h3 class="font-semibold text-lg flex items-center gap-2"><i class="fas fa-list text-indigo-400"></i> Пул ключей и мониторинг</h3>
+                                <div class="flex items-center gap-2 text-xs">
+                                    <button onclick="selectAllKeys(true)" class="px-2.5 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-gray-300 transition" title="Включить все ключи"><i class="fas fa-check-square mr-1 text-emerald-400"></i>Все</button>
+                                    <button onclick="selectAllKeys(false)" class="px-2.5 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-gray-300 transition" title="Отключить все ключи"><i class="fas fa-square mr-1 text-gray-400"></i>Снять</button>
+                                    <button onclick="resetAllKeyCooldowns()" class="px-2.5 py-1.5 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 rounded-lg transition" title="Сбросить статус 429 и принудительно разблокировать ключи"><i class="fas fa-redo-alt mr-1"></i>Сброс 429</button>
+                                </div>
+                            </div>
                             <div id="keys-list" class="space-y-4"></div>
                         </div>
                     </div>
@@ -1575,6 +1582,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                 let hasPaused = false;
                 for (const key of this.keys) {
                     const status = this._getStatusForModel(key, modelId);
+                    if (status.disabled) continue;
                     this._normalizeAvailability(status);
                     if (status.exhaustedLevel === 0) return 0; // Key is ready right now
                     if (status.exhaustedLevel === 1 && status.pausedUntil) {
@@ -1591,6 +1599,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                 const remList = [];
                 for (const key of this.keys) {
                     const status = this._getStatusForModel(key, modelId);
+                    if (status.disabled) continue;
                     this._normalizeAvailability(status);
                     if (status.exhaustedLevel === 0) return 0; // At least one key ready right now
                     if (status.exhaustedLevel === 1 && status.pausedUntil) {
@@ -1620,6 +1629,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
                         if (modelId) {
                             const status = this._getStatusForModel(key, modelId);
+                            if (status.disabled) continue;
                             this._normalizeAvailability(status);
                             if (status.exhaustedLevel !== 0) continue;
                         }
@@ -2056,6 +2066,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         // =============================================
         // UI FUNCTIONS
         // =============================================
+        // Live auto-refresh for Keys tab when visible
+        setInterval(() => {
+            const keysPanel = document.getElementById('panel-keys');
+            if (keysPanel && !keysPanel.classList.contains('hidden')) {
+                renderKeysList();
+            }
+        }, 2000);
+
         function switchTab(tabName) {
             document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
             document.querySelectorAll('[id^="tab-"]').forEach(t => { t.classList.remove('tab-active'); t.classList.add('bg-white/10'); });
@@ -2063,6 +2081,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             const btn = document.getElementById(`tab-${tabName}`);
             btn.classList.add('tab-active');
             btn.classList.remove('bg-white/10');
+            if (tabName === 'keys') renderKeysList();
             if (tabName === 'settings' && state.provider) renderModelList();
         }
 
@@ -2301,25 +2320,77 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         function renderKeysList() {
             const container = document.getElementById('keys-list');
             let html = '';
+            const currentModelId = (state.provider && state.model) ? (PROVIDERS_CONFIG[state.provider]?.models?.[state.model]?.id || state.model) : 'default';
+
             for (const [provider, km] of Object.entries(state.keys)) {
                 if (!km || km.count() === 0) continue;
-                const config = PROVIDERS_CONFIG[provider];
+                const config = PROVIDERS_CONFIG[provider] || { displayName: provider };
+                const providerModelId = (state.provider === provider && state.model) ? (config.models?.[state.model]?.id || state.model) : currentModelId;
+
+                const activeCount = km.keys.filter(k => {
+                    const st = km._getStatusForModel(k, providerModelId);
+                    km._normalizeAvailability(st);
+                    return !st.disabled && st.exhaustedLevel === 0;
+                }).length;
+
                 html += `
-                    <div class="border border-white/10 rounded-xl overflow-hidden">
-                        <div class="bg-white/5 px-4 py-3 flex items-center justify-between">
-                            <span class="font-medium">${config.displayName}</span>
-                            <span class="text-sm text-gray-400">${km.keys.length} ключей</span>
+                    <div class="border border-white/10 rounded-2xl overflow-hidden shadow-lg bg-black/20">
+                        <div class="bg-white/5 px-4 py-3 flex items-center justify-between border-b border-white/10">
+                            <div class="flex items-center gap-2">
+                                <span class="font-semibold text-indigo-300">${escapeHtml(config.displayName)}</span>
+                                <span class="text-xs px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300">${activeCount}/${km.keys.length} активны</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button onclick="selectAllKeys(true, '${provider}')" class="text-xs px-2 py-1 bg-white/5 hover:bg-white/10 text-gray-300 rounded transition" title="Включить все ключи этого провайдера">Все</button>
+                                <button onclick="selectAllKeys(false, '${provider}')" class="text-xs px-2 py-1 bg-white/5 hover:bg-white/10 text-gray-300 rounded transition" title="Отключить все ключи этого провайдера">Снять</button>
+                            </div>
                         </div>
-                        <div class="divide-y divide-white/5">
+                        <div class="p-3 space-y-2 max-h-[460px] overflow-y-auto">
                             ${km.keys.map((key, idx) => {
-                                const isLocal = !!PROVIDERS_CONFIG[provider]?.local;
-                                const label = isLocal ? '(local / no key)' : `${key.slice(0, 12)}...${key.slice(-4)}`;
+                                const isLocal = !!config.local;
+                                const label = isLocal ? '(local / no key)' : `${key.slice(0, 10)}...${key.slice(-4)}`;
+                                const status = km._getStatusForModel(key, providerModelId);
+                                km._normalizeAvailability(status);
+
+                                const isEnabled = !status.disabled;
+                                const reqCount = status.dailyRequests || (status.requests ? status.requests.length : 0);
+
+                                let statusBadge = '';
+                                let cardBorder = 'border-white/10';
+                                let cardBg = 'bg-white/5';
+
+                                if (!isEnabled) {
+                                    statusBadge = '<span class="px-2 py-0.5 rounded text-xs bg-gray-500/20 text-gray-400 border border-gray-500/30 font-medium">Отключен</span>';
+                                    cardBg = 'bg-black/40 opacity-60';
+                                } else if (status.exhaustedLevel === 0) {
+                                    statusBadge = '<span class="px-2 py-0.5 rounded text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>Готов</span>';
+                                    cardBorder = 'border-emerald-500/25';
+                                    cardBg = 'bg-emerald-500/5';
+                                } else if (status.exhaustedLevel === 1) {
+                                    const remSec = status.pausedUntil ? Math.max(0, Math.ceil((status.pausedUntil - Date.now()) / 1000)) : 60;
+                                    statusBadge = `<span class="px-2 py-0.5 rounded text-xs bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 font-medium flex items-center gap-1"><i class="fas fa-clock text-[10px]"></i>429 (${remSec}с)</span>`;
+                                    cardBorder = 'border-yellow-500/30';
+                                    cardBg = 'bg-yellow-500/10';
+                                } else if (status.exhaustedLevel === 2) {
+                                    statusBadge = '<span class="px-2 py-0.5 rounded text-xs bg-red-500/20 text-red-300 border border-red-500/30 font-medium flex items-center gap-1"><i class="fas fa-ban text-[10px]"></i>Исчерпан</span>';
+                                    cardBorder = 'border-red-500/30';
+                                    cardBg = 'bg-red-500/10';
+                                }
+
                                 return `
-                                <div class="key-item px-4 py-2 flex items-center justify-between">
-                                    <code class="text-sm text-gray-400">${escapeHtml(label)}</code>
-                                    <button onclick="removeKey('${provider}', ${idx})" class="text-red-400 hover:text-red-300 transition">
-                                        <i class="fas fa-trash"></i>
-                                    </button>
+                                <div class="px-3.5 py-2.5 rounded-xl border ${cardBorder} ${cardBg} transition flex items-center justify-between gap-3">
+                                    <div class="flex items-center gap-3 min-w-0">
+                                        <input type="checkbox" ${isEnabled ? 'checked' : ''} onchange="toggleKeyEnabled('${provider}', ${idx})" class="w-4 h-4 rounded text-indigo-600 focus:ring-0 focus:outline-none bg-white/10 border-white/20 cursor-pointer" title="Включить / исключить ключ из пула">
+                                        <span class="text-xs text-gray-500 font-mono w-6">#${idx + 1}</span>
+                                        <code class="text-xs md:text-sm font-mono text-gray-300 truncate">${escapeHtml(label)}</code>
+                                    </div>
+                                    <div class="flex items-center gap-2 flex-shrink-0">
+                                        <span class="text-xs px-2 py-0.5 rounded bg-white/10 text-gray-300 font-medium" title="Количество выполненных запросов">${reqCount} зап.</span>
+                                        ${statusBadge}
+                                        <button onclick="removeKey('${provider}', ${idx})" class="text-gray-500 hover:text-red-400 transition p-1 ml-1" title="Удалить ключ">
+                                            <i class="fas fa-trash text-xs"></i>
+                                        </button>
+                                    </div>
                                 </div>
                                 `;
                             }).join('')}
@@ -2328,6 +2399,57 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                 `;
             }
             container.innerHTML = html || '<p class="text-gray-400 text-center py-8">Нет сохранённых ключей</p>';
+        }
+
+        function toggleKeyEnabled(provider, index) {
+            const km = state.keys[provider];
+            if (!km || !km.keys[index]) return;
+            const key = km.keys[index];
+            const currentModelId = (state.provider === provider && state.model) ? (PROVIDERS_CONFIG[provider]?.models?.[state.model]?.id || state.model) : 'default';
+            const status = km._getStatusForModel(key, currentModelId);
+            status.disabled = !status.disabled;
+            saveState();
+            renderKeysList();
+            showToast(status.disabled ? `Ключ #${index + 1} отключён` : `Ключ #${index + 1} включён`, 'info');
+        }
+
+        function selectAllKeys(enable = true, provider = null) {
+            const targetProviders = provider ? [provider] : Object.keys(state.keys);
+            for (const p of targetProviders) {
+                const km = state.keys[p];
+                if (!km) continue;
+                const currentModelId = (state.provider === p && state.model) ? (PROVIDERS_CONFIG[p]?.models?.[state.model]?.id || state.model) : 'default';
+                for (const key of km.keys) {
+                    const status = km._getStatusForModel(key, currentModelId);
+                    status.disabled = !enable;
+                }
+            }
+            saveState();
+            renderKeysList();
+            showToast(enable ? 'Все ключи включены' : 'Все ключи отключены', 'info');
+        }
+
+        function resetAllKeyCooldowns(provider = null) {
+            const targetProviders = provider ? [provider] : Object.keys(state.keys);
+            let count = 0;
+            for (const p of targetProviders) {
+                const km = state.keys[p];
+                if (!km) continue;
+                for (const key of km.keys) {
+                    const modelStatuses = km.keyStatuses[key]?.statusByModel || {};
+                    for (const st of Object.values(modelStatuses)) {
+                        if (st.exhaustedLevel === 1 || st.pausedUntil) {
+                            st.exhaustedLevel = 0;
+                            st.pausedUntil = null;
+                            count++;
+                        }
+                    }
+                }
+            }
+            saveState();
+            renderKeysList();
+            showToast(`Сброшен кулдаун 429 у ${count} записей`, 'success');
+            log(`Ручной сброс кулдаунов 429: разблокировано ${count} записей`, 'info');
         }
 
         function removeKey(provider, index) {
