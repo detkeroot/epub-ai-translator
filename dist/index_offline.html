@@ -2954,11 +2954,29 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             const startInner = openIdx + openTag.length;
             const lower = src.toLowerCase();
             const closeIdx = lower.lastIndexOf('</body>');
+            if (closeIdx === -1) {
+                return { hasBody: false, prefix: '', bodyInner: src, suffix: '' };
+            }
+
+            return {
+                hasBody: true,
+                prefix: src.slice(0, startInner),
+                bodyInner: src.slice(startInner, closeIdx),
+                suffix: src.slice(closeIdx)
+            };
+        }
+
+        function extractBodyInnerFromAnyHtml(translated) {
+            const s = String(translated || '');
+            const openMatch = s.match(/<body\b[^>]*>/i);
+            if (!openMatch) return s;
+            const openIdx = openMatch.index ?? s.toLowerCase().indexOf('<body');
+            const startInner = openIdx + openMatch[0].length;
+            const closeIdx = s.toLowerCase().lastIndexOf('</body>');
             if (closeIdx === -1 || closeIdx < startInner) return s;
             return s.slice(startInner, closeIdx);
         }
 
-        
         function hasMeaningfulText(html) {
             if (!html || typeof html !== 'string') return false;
             // Strip tags and media comments
@@ -4034,7 +4052,22 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
                         const isGoogleFallback = Boolean(chapter.isGoogleFallback || (typeof chapter.content === 'string' && chapter.content.includes('filtered-chapter-warning')));
             const titleText = chapter.title || `Глава ${index + 1}`;
-            document.getElementById('current-chapter-name').innerHTML = `${escapeHtml(titleText)} ${isGoogleFallback ? '<span class="px-2 py-0.5 rounded text-xs bg-yellow-500/20 text-yellow-300 font-medium ml-2"><i class="fas fa-shield-alt mr-1"></i>Google Translate (фильтр цензуры)</span>' : ''}`;
+                        // Ratio check
+            const origRaw = chapter.original?.content || '';
+            const transRaw = chapter.content || '';
+            const origCleanLen = origRaw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+            const transCleanLen = transRaw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+            const ratio = origCleanLen > 0 ? Math.round((transCleanLen / origCleanLen) * 100) : 100;
+            let ratioBadge = '';
+            if (transCleanLen === 0) {
+                ratioBadge = '<span class="px-2 py-0.5 rounded text-xs bg-red-500/20 text-red-300 font-medium ml-2"><i class="fas fa-exclamation-circle mr-1"></i>Пустая глава (0%)</span>';
+            } else if (ratio < 25 && origCleanLen > 200) {
+                ratioBadge = `<span class="px-2 py-0.5 rounded text-xs bg-orange-500/20 text-orange-300 font-medium ml-2" title="Перевод подозрительно короткий относительно оригинала"><i class="fas fa-compress-arrows-alt mr-1"></i>Обрезано (${ratio}%)</span>`;
+            } else {
+                ratioBadge = `<span class="px-2 py-0.5 rounded text-xs bg-white/10 text-gray-400 text-[11px] ml-2">${ratio}% объема</span>`;
+            }
+
+            document.getElementById('current-chapter-name').innerHTML = `${escapeHtml(titleText)} ${isGoogleFallback ? '<span class="px-2 py-0.5 rounded text-xs bg-yellow-500/20 text-yellow-300 font-medium ml-2"><i class="fas fa-shield-alt mr-1"></i>Google Translate</span>' : ''} ${ratioBadge}`;
 
             ['text', 'code', 'punct'].forEach(mode => {
                 const btn = document.getElementById(`view-${mode}`);
@@ -4107,7 +4140,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
             for (let i = 0; i < chapters.length; i++) {
                 const ch = chapters[i];
-                if (!hasMeaningfulText(ch.content)) {
+                const origRaw = ch.original?.content || '';
+                const origLen = origRaw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+                const transLen = (ch.content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+
+                // Empty or severely truncated (< 20% of original when original > 200 chars)
+                if (!hasMeaningfulText(ch.content) || (origLen > 200 && transLen < origLen * 0.20)) {
                     emptyIndices.push(i);
                 }
             }
