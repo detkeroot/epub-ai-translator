@@ -166,6 +166,39 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                             </div>
                         </div>
 
+                                                <!-- Project Folder Card -->
+                        <div class="card-gradient rounded-2xl p-4 border border-white/10 mb-6">
+                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div class="flex items-center gap-3 min-w-0">
+                                    <div class="w-10 h-10 rounded-xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center flex-shrink-0 text-indigo-400">
+                                        <i class="fas fa-folder-open text-lg"></i>
+                                    </div>
+                                    <div class="min-w-0">
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-xs text-gray-400">Папка проекта:</span>
+                                            <span id="project-folder-type-badge" class="px-1.5 py-0.5 rounded text-[10px] bg-indigo-500/20 text-indigo-300 font-mono">auto</span>
+                                        </div>
+                                        <p id="current-project-folder-name" class="font-medium text-sm text-indigo-300 truncate" title="Текущая папка проекта">project_001</p>
+                                    </div>
+                                </div>
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <button onclick="chooseProjectDirectory()" class="px-3 py-1.5 bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 border border-indigo-500/30 rounded-xl text-xs font-medium transition flex items-center gap-1.5" title="Выбрать реальную папку на диске или смартфоне">
+                                        <i class="fas fa-folder"></i> Выбрать папку
+                                    </button>
+                                    <button onclick="createNewProjectFolder()" class="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-gray-300 rounded-xl text-xs transition flex items-center gap-1.5" title="Создать следующую папку со следующим порядковым номером (project_002, 003...)">
+                                        <i class="fas fa-plus"></i> Новая папка
+                                    </button>
+                                    <button onclick="downloadProjectFolderZip()" class="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-gray-300 rounded-xl text-xs transition flex items-center gap-1.5" title="Скачать всю папку проекта со всеми файлами (книга, лог, глоссарий, прогресс)">
+                                        <i class="fas fa-file-archive"></i> Скачать ZIP
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="mt-2 pt-2 border-t border-white/5 flex flex-wrap items-center justify-between text-[11px] text-gray-500 gap-2">
+                                <span id="project-folder-storage-status"><i class="fas fa-check-circle text-green-400 mr-1"></i>Автосохранение: лог, прогресс, глоссарий и книга пишутся в эту папку</span>
+                                <span id="project-files-summary">4 файла по умолчанию</span>
+                            </div>
+                        </div>
+
                         <div id="upload-area" class="card-gradient rounded-2xl p-12 border-2 border-dashed border-white/30 hover:border-indigo-500 transition cursor-pointer text-center"
                              ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)"
                              onclick="document.getElementById('file-input').click()">
@@ -1843,6 +1876,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         // STATE
         // =============================================
         let state = {
+            projectFolderName: 'project_001',
+            projectDirHandle: null,
+            projectFolderMode: 'auto',
+            projectSeq: 1,
             bookId: null,
             cachedChaptersMap: new Map(),
             abortController: null,
@@ -3868,6 +3905,210 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                 console.error('Auto-save error:', e);
             }
         }
+
+        
+        // =============================================
+        // PROJECT FOLDER & ARTIFACTS MANAGEMENT
+        // =============================================
+        function getNextProjectFolderSeq() {
+            let seq = parseInt(localStorage.getItem('epub_translator_project_seq') || '1', 10);
+            return seq;
+        }
+
+        function initProjectFolder() {
+            const customName = localStorage.getItem('epub_custom_project_folder_name');
+            if (customName && customName.trim()) {
+                state.projectFolderName = customName.trim();
+                state.projectFolderMode = 'custom';
+            } else {
+                let seq = getNextProjectFolderSeq();
+                state.projectSeq = seq;
+                state.projectFolderName = 'project_' + String(seq).padStart(3, '0');
+                state.projectFolderMode = 'auto';
+            }
+            updateProjectFolderUI();
+        }
+
+        function createNewProjectFolder() {
+            let seq = getNextProjectFolderSeq() + 1;
+            localStorage.setItem('epub_project_seq', String(seq));
+            localStorage.removeItem('epub_custom_project_folder_name');
+            state.projectSeq = seq;
+            state.projectFolderName = 'project_' + String(seq).padStart(3, '0');
+            state.projectDirHandle = null;
+            state.projectFolderMode = 'auto';
+            updateProjectFolderUI();
+            showToast(`Создана папка: ${state.projectFolderName}`, 'success');
+            log(`Создана новая папка проекта: ${state.projectFolderName}`, 'info');
+        }
+
+        async function chooseProjectDirectory() {
+            if (typeof window.showDirectoryPicker === 'function') {
+                try {
+                    const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+                    if (handle) {
+                        state.projectDirHandle = handle;
+                        state.projectFolderName = handle.name;
+                        state.projectFolderMode = 'disk';
+                        localStorage.setItem('epub_custom_project_folder_name', handle.name);
+                        updateProjectFolderUI();
+                        showToast(`Выбрана папка: ${handle.name}`, 'success');
+                        log(`Папка проекта на диске: ${handle.name}`, 'info');
+                        await syncProjectArtifactsToDisk();
+                    }
+                } catch (e) {
+                    if (e.name !== 'AbortError') {
+                        showToast('Ошибка выбора папки: ' + e.message, 'error');
+                    }
+                }
+            } else {
+                const current = state.projectFolderName || 'project_001';
+                const chosen = prompt('Введите имя папки проекта (для сохранения в хранилище и ZIP):', current);
+                if (chosen && chosen.trim()) {
+                    state.projectFolderName = chosen.trim();
+                    state.projectFolderMode = 'custom';
+                    localStorage.setItem('epub_custom_project_folder_name', state.projectFolderName);
+                    updateProjectFolderUI();
+                    showToast(`Папка проекта: ${state.projectFolderName}`, 'success');
+                    log(`Папка проекта: ${state.projectFolderName}`, 'info');
+                }
+            }
+        }
+
+        function updateProjectFolderUI() {
+            const nameEl = document.getElementById('current-project-folder-name');
+            const badgeEl = document.getElementById('project-folder-type-badge');
+            const statusEl = document.getElementById('project-folder-storage-status');
+            if (nameEl) nameEl.textContent = state.projectFolderName;
+            if (badgeEl) {
+                if (state.projectFolderMode === 'disk') {
+                    badgeEl.textContent = 'диск';
+                    badgeEl.className = 'px-1.5 py-0.5 rounded text-[10px] bg-green-500/20 text-green-300 font-mono';
+                } else if (state.projectFolderMode === 'custom') {
+                    badgeEl.textContent = 'пользовательская';
+                    badgeEl.className = 'px-1.5 py-0.5 rounded text-[10px] bg-purple-500/20 text-purple-300 font-mono';
+                } else {
+                    badgeEl.textContent = 'авто';
+                    badgeEl.className = 'px-1.5 py-0.5 rounded text-[10px] bg-indigo-500/20 text-indigo-300 font-mono';
+                }
+            }
+            if (statusEl) {
+                if (state.projectFolderMode === 'disk') {
+                    statusEl.innerHTML = `<i class="fas fa-hdd text-green-400 mr-1"></i>Прямая запись на диск: логи, прогресс, глоссарий и книга сохраняются в реальную папку`;
+                } else {
+                    statusEl.innerHTML = `<i class="fas fa-check-circle text-indigo-400 mr-1"></i>Автосохранение: лог, прогресс, глоссарий и книга пишутся в эту папку (доступно в ZIP)`;
+                }
+            }
+        }
+
+        async function writeProjectDiskFile(filename, content, type = 'text/plain') {
+            if (!state.projectDirHandle) return false;
+            try {
+                const fileHandle = await state.projectDirHandle.getFileHandle(filename, { create: true });
+                const writable = await fileHandle.createWritable();
+                await writable.write(content);
+                await writable.close();
+                return true;
+            } catch (e) {
+                console.warn('Error writing file to disk:', filename, e);
+                return false;
+            }
+        }
+
+        async function syncProjectArtifactsToDisk() {
+            if (!state.projectDirHandle) return;
+            const logContainer = document.getElementById('log-container');
+            const logText = logContainer ? logContainer.innerText : '';
+            await writeProjectDiskFile('translation.log', logText, 'text/plain');
+
+            const progressPayload = {
+                projectFolder: state.projectFolderName,
+                bookName: state.currentFile?.name || 'none',
+                totalChapters: state.epubData?.chapters?.length || 0,
+                cachedChaptersCount: state.cachedChaptersMap ? state.cachedChaptersMap.size : (state.translatedChapters?.length || 0),
+                glossaryCount: Object.keys(state.glossary || {}).length,
+                provider: state.provider,
+                model: state.model,
+                lastUpdated: new Date().toISOString()
+            };
+            await writeProjectDiskFile('progress.json', JSON.stringify(progressPayload, null, 2), 'application/json');
+
+            if (Object.keys(state.glossary || {}).length > 0) {
+                await writeProjectDiskFile('glossary.json', JSON.stringify(state.glossary, null, 2), 'application/json');
+            }
+        }
+
+        async function downloadProjectFolderZip() {
+            const folderName = state.projectFolderName || 'project_001';
+            showToast('Сборка архива папки проекта...', 'info');
+            log(`Сборка ZIP папки проекта: ${folderName}...`, 'info');
+
+            const zip = new JSZip();
+            const root = zip.folder(folderName);
+
+            // 1. translation.log
+            const logContainer = document.getElementById('log-container');
+            const logText = logContainer ? logContainer.innerText : '';
+            root.file('translation.log', logText);
+
+            // 2. progress.json
+            const progressPayload = {
+                projectFolder: folderName,
+                bookName: state.currentFile?.name || 'none',
+                totalChapters: state.epubData?.chapters?.length || 0,
+                cachedChaptersCount: state.cachedChaptersMap ? state.cachedChaptersMap.size : (state.translatedChapters?.length || 0),
+                glossaryCount: Object.keys(state.glossary || {}).length,
+                provider: state.provider,
+                model: state.model,
+                lastUpdated: new Date().toISOString()
+            };
+            root.file('progress.json', JSON.stringify(progressPayload, null, 2));
+
+            // 3. glossary.json
+            root.file('glossary.json', JSON.stringify(state.glossary || {}, null, 2));
+
+            // 4. If we have translated chapters and original EPUB, package the book inside the folder
+            const chaptersToPack = new Map();
+            if (state.cachedChaptersMap) {
+                for (const [p, ch] of state.cachedChaptersMap.entries()) {
+                    if (ch && ch.content) chaptersToPack.set(p, ch.content);
+                }
+            }
+            if (state.translatedChapters) {
+                for (const ch of state.translatedChapters) {
+                    if (ch && ch.path && ch.content) chaptersToPack.set(ch.path, ch.content);
+                }
+            }
+
+            if (chaptersToPack.size > 0 && state.epubData?.zip) {
+                try {
+                    const originalZip = state.epubData.zip;
+                    const bookZip = new JSZip();
+                    const names = Object.keys(originalZip.files);
+                    for (const name of names) {
+                        const file = originalZip.file(name);
+                        if (!file) continue;
+                        if (chaptersToPack.has(name)) {
+                            bookZip.file(name, chaptersToPack.get(name));
+                        } else {
+                            const data = await file.async('uint8array');
+                            bookZip.file(name, data);
+                        }
+                    }
+                    const bookBlob = await bookZip.generateAsync({ type: 'uint8array' });
+                    const bookBaseName = (state.currentFile?.name || 'book').replace(/\.epub$/i, '');
+                    root.file(`${bookBaseName}_translated.epub`, bookBlob);
+                } catch (e) {
+                    console.warn('Could not package EPUB into project zip:', e);
+                }
+            }
+
+            const zipBlob = await zip.generateAsync({ type: 'blob' });
+            downloadBlob(zipBlob, `${folderName}.zip`);
+            showToast(`Папка проекта ${folderName}.zip скачана!`, 'success');
+            log(`Папка проекта ${folderName}.zip успешно скачана`, 'success');
+        }
+
 
         function loadProjectHistory() { /* already loaded via loadState */ }
 
@@ -5949,6 +6190,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         // =============================================
         function initAppV99() {
             loadState();
+            initProjectFolder();
             populateProviderSelect();
             updateUI();
             updateKeyProviderInfo();
