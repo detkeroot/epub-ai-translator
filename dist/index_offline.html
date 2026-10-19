@@ -203,9 +203,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                              ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)"
                              onclick="document.getElementById('file-input').click()">
                             <i class="fas fa-cloud-upload-alt text-5xl text-gray-400 mb-4"></i>
-                            <p class="text-xl font-medium mb-2">Перетащите EPUB файл сюда</p>
+                            <p class="text-xl font-medium mb-2">Перетащите EPUB или TXT файл сюда</p>
                             <p class="text-gray-400">или нажмите для выбора</p>
-                            <input type="file" accept=".epub" class="hidden" id="file-input" onchange="handleFileSelect(event)">
+                            <input type="file" accept=".epub,.txt,text/plain" class="hidden" id="file-input" onchange="handleFileSelect(event)">
                         </div>
 
                         <div id="file-info" class="hidden card-gradient rounded-2xl p-6 border border-white/10">
@@ -530,15 +530,36 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                         <div class="space-y-4">
                             <div>
                                 <label class="block text-sm text-gray-400 mb-2">Размер чанка (символов)</label>
-                                <input type="number" id="chunk-size" value="50000" min="10000" max="200000" step="5000" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 focus:outline-none focus:border-indigo-500 transition">
+                                <input type="number" id="chunk-size" value="50000" min="10000" max="200000" step="5000" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 focus:outline-none focus:border-indigo-500 transition" onchange="saveSettingsToStorage()">
+                                <p class="text-xs text-gray-500 mt-1">Если глава длиннее этого значения, она делится на части по границам абзацев для стабильного перевода.</p>
                             </div>
                             <div>
                                 <label class="block text-sm text-gray-400 mb-2">Максимум терминов в глоссарии</label>
-                                <input type="number" id="max-glossary-terms" value="60" min="20" max="150" step="10" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 focus:outline-none focus:border-indigo-500 transition">
+                                <input type="number" id="max-glossary-terms" value="60" min="20" max="150" step="10" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 focus:outline-none focus:border-indigo-500 transition" onchange="saveSettingsToStorage()">
+                                <p class="text-xs text-gray-500 mt-1">Сколько релевантных терминов из словаря подставлять в подсказку при переводе каждой главы.</p>
                             </div>
                             <div>
                                 <label class="block text-sm text-gray-400 mb-2">Макс. повторов на ключ</label>
-                                <input type="number" id="max-retries" value="2" min="1" max="5" step="1" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 focus:outline-none focus:border-indigo-500 transition">
+                                <input type="number" id="max-retries" value="2" min="1" max="5" step="1" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 focus:outline-none focus:border-indigo-500 transition" onchange="saveSettingsToStorage()">
+                                <p class="text-xs text-gray-500 mt-1">Количество повторных попыток при сбое сети или 500/503 ошибке сервера перед ротацией ключа.</p>
+                            </div>
+                            <div>
+                                <div class="flex justify-between items-center mb-1">
+                                    <label class="block text-sm text-gray-400">Температура модели (Креативность)</label>
+                                    <span id="temperature-val" class="text-xs font-mono text-indigo-400">0.30</span>
+                                </div>
+                                <input type="range" id="temperature-input" min="0.0" max="1.0" step="0.05" value="0.30" class="w-full accent-indigo-500 cursor-pointer" oninput="document.getElementById('temperature-val').textContent = parseFloat(this.value).toFixed(2); saveSettingsToStorage();">
+                                <p class="text-xs text-gray-500 mt-1">0.1–0.2: точность и строгие имена (глоссарий). 0.3–0.5: баланс для новелл. 0.7+: литературная свобода.</p>
+                            </div>
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <span class="text-sm">Передавать примечания (note) в перевод</span>
+                                    <p class="text-xs text-gray-500 mt-0.5">Включает пол, род и статус персонажей в подсказку для согласования окончаний</p>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="send-glossary-notes" checked class="sr-only peer" onchange="saveSettingsToStorage()">
+                                    <div class="w-11 h-6 bg-white/20 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                                </label>
                             </div>
                             <div>
                                 <label class="block text-sm text-gray-400 mb-2">Параллельных воркеров (по ключам)</label>
@@ -1443,11 +1464,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
         // Global check for pause & cancel across all workers and subroutines
         async function checkPauseAndCancel() {
-            if (state.cancelRequested) throw new OperationCancelledError('Cancelled');
-            while (state.isPaused && !state.cancelRequested) {
+            if (state.cancelRequested || cancelGlossaryRequested) throw new OperationCancelledError('Cancelled');
+            while (state.isPaused && !state.cancelRequested && !cancelGlossaryRequested) {
                 await sleep(200);
             }
-            if (state.cancelRequested) throw new OperationCancelledError('Cancelled');
+            if (state.cancelRequested || cancelGlossaryRequested) throw new OperationCancelledError('Cancelled');
         }
 
         // =============================================
@@ -2544,6 +2565,63 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         }
 
         
+        // =============================================
+        // SETTINGS PERSISTENCE
+        // =============================================
+        function saveSettingsToStorage() {
+            try {
+                const s = {
+                    chunkSize: document.getElementById('chunk-size')?.value,
+                    maxGlossaryTerms: document.getElementById('max-glossary-terms')?.value,
+                    maxRetries: document.getElementById('max-retries')?.value,
+                    numInstances: document.getElementById('num-instances')?.value,
+                    rpmLimit: document.getElementById('rpm-limit')?.value,
+                    requestStaggerDelay: document.getElementById('request-stagger-delay')?.value,
+                    temperature: document.getElementById('temperature-input')?.value,
+                    sendGlossaryNotes: document.getElementById('send-glossary-notes')?.checked,
+                    createGlossary: document.getElementById('create-glossary')?.checked,
+                    fallbackGoogle: document.getElementById('fallback-google-translate')?.checked,
+                    keepCensored: document.getElementById('keep-censored')?.checked,
+                    autoSave: document.getElementById('auto-save')?.checked,
+                    enableBatching: document.getElementById('enable-batching')?.checked,
+                    batchingMaxChars: document.getElementById('batching-max-chars')?.value
+                };
+                localStorage.setItem('epubTranslatorSettings99', JSON.stringify(s));
+            } catch (e) { console.error('Save settings error:', e); }
+        }
+
+        function loadSettingsFromStorage() {
+            try {
+                const raw = localStorage.getItem('epubTranslatorSettings99');
+                if (!raw) return;
+                const s = JSON.parse(raw);
+                if (s.chunkSize) document.getElementById('chunk-size').value = s.chunkSize;
+                if (s.maxGlossaryTerms) document.getElementById('max-glossary-terms').value = s.maxGlossaryTerms;
+                if (s.maxRetries) document.getElementById('max-retries').value = s.maxRetries;
+                if (s.numInstances) document.getElementById('num-instances').value = s.numInstances;
+                if (s.rpmLimit) document.getElementById('rpm-limit').value = s.rpmLimit;
+                if (s.requestStaggerDelay) document.getElementById('request-stagger-delay').value = s.requestStaggerDelay;
+                if (s.temperature != null) {
+                    const tempInput = document.getElementById('temperature-input');
+                    if (tempInput) {
+                        tempInput.value = s.temperature;
+                        const valEl = document.getElementById('temperature-val');
+                        if (valEl) valEl.textContent = parseFloat(s.temperature).toFixed(2);
+                    }
+                }
+                if (s.sendGlossaryNotes != null) {
+                    const el = document.getElementById('send-glossary-notes');
+                    if (el) el.checked = Boolean(s.sendGlossaryNotes);
+                }
+                if (s.createGlossary != null) document.getElementById('create-glossary').checked = Boolean(s.createGlossary);
+                if (s.fallbackGoogle != null) document.getElementById('fallback-google-translate').checked = Boolean(s.fallbackGoogle);
+                if (s.keepCensored != null) document.getElementById('keep-censored').checked = Boolean(s.keepCensored);
+                if (s.autoSave != null) document.getElementById('auto-save').checked = Boolean(s.autoSave);
+                if (s.enableBatching != null) document.getElementById('enable-batching').checked = Boolean(s.enableBatching);
+                if (s.batchingMaxChars) document.getElementById('batching-max-chars').value = s.batchingMaxChars;
+            } catch (e) { console.error('Load settings error:', e); }
+        }
+
         function saveThinkingSettings() {
             state.thinkingEnabled = document.getElementById('thinking-enabled')?.checked ?? true;
             state.thinkingLevel = document.getElementById('thinking-level-select')?.value || 'minimal';
@@ -2572,8 +2650,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             e.preventDefault();
             e.currentTarget.classList.remove('border-indigo-500', 'bg-indigo-500/10');
             const file = e.dataTransfer.files[0];
-            if (file?.name.endsWith('.epub')) processFile(file);
-            else showToast('Загрузите EPUB файл', 'error');
+            if (file?.name.endsWith('.epub') || file?.name.endsWith('.txt') || file?.type === 'text/plain') processFile(file);
+            else showToast('Загрузите EPUB или TXT файл', 'error');
         }
         function handleFileSelect(e) { if (e.target.files[0]) processFile(e.target.files[0]); }
 
@@ -2645,6 +2723,166 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             document.getElementById('chapter-range').classList.toggle('hidden', !enabled);
         }
 
+        // =============================================
+        // TXT TO EPUB ON-THE-FLY CONVERTER
+        // =============================================
+        async function convertTxtToEpubZip(file) {
+            const rawText = await file.text();
+            const fileName = file.name || 'book.txt';
+            const cleanStem = fileName.replace(/\.[^/.]+$/, '').replace(/_RAW/i, '').replace(/_/g, ' ');
+
+            // Extract title & author
+            const titleMatch = rawText.match(/《([^》]+)》/);
+            const bookTitle = titleMatch ? titleMatch[1].trim() : cleanStem;
+
+            const authorMatch = rawText.match(/作者[：:]\s*([^\n\r]+)/);
+            const bookAuthor = authorMatch ? authorMatch[1].trim() : 'Неизвестен';
+
+            // Multi-lingual chapter regex:
+            // 1. Markdown style: ### Chapter
+            // 2. Chinese: 第X章/回/节/卷 ...
+            // 3. Russian: Глава/Часть/Раздел/Эпизод/Пролог/Эпилог ...
+            // 4. English: Chapter/Section/Part/Episode/Prologue/Epilogue ...
+            const chapterRegex = /(?:^|\n)(?:###\s+([^\n]+)|([ \t]*第\s*[0-9一二三四五六七八九十百千万0-9]+\s*[章回节卷][^\n]*)|([ \t]*(?:Глава|Часть|Раздел|Эпизод|Пролог|Эпилог|Интерлюдия)\s*\d*[^\n]*)|([ \t]*(?:Chapter|Section|Part|Episode|Prologue|Epilogue)\s*\d*[^\n]*))/gi;
+
+            const matches = [];
+            let match;
+            while ((match = chapterRegex.exec(rawText)) !== null) {
+                const title = (match[1] || match[2] || match[3] || match[4] || '').trim();
+                if (title && !title.startsWith('===')) {
+                    matches.push({ title, start: match.index, end: chapterRegex.lastIndex });
+                }
+            }
+
+            const chapters = [];
+            if (matches.length >= 2) {
+                for (let i = 0; i < matches.length; i++) {
+                    const m = matches[i];
+                    const nextStart = (i + 1 < matches.length) ? matches[i + 1].start : rawText.length;
+                    const body = rawText.substring(m.end, nextStart).trim();
+                    if (body) {
+                        chapters.push({ title: m.title, body });
+                    }
+                }
+            } else {
+                // Fallback: split into ~9000-11000 character chunks by paragraph breaks
+                const paragraphs = rawText.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+                let curParas = [];
+                let curLen = 0;
+                let partNum = 1;
+                for (const p of paragraphs) {
+                    curParas.push(p);
+                    curLen += p.length;
+                    if (curLen >= 9000) {
+                        chapters.push({ title: `Часть ${partNum}`, body: curParas.join('\n\n') });
+                        partNum++;
+                        curParas = [];
+                        curLen = 0;
+                    }
+                }
+                if (curParas.length > 0) {
+                    chapters.push({ title: `Часть ${partNum}`, body: curParas.join('\n\n') });
+                }
+            }
+
+            if (chapters.length === 0) {
+                chapters.push({ title: bookTitle, body: rawText.trim() });
+            }
+
+            // Build standard valid EPUB archive using JSZip
+            const zip = new JSZip();
+            zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
+
+            const containerXml = `<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>`;
+            zip.file("META-INF/container.xml", containerXml);
+
+            const css = `body { font-family: sans-serif; line-height: 1.8; margin: 1.5em; color: #222; }
+h2 { text-align: center; margin-top: 1em; margin-bottom: 1.5em; font-weight: bold; border-bottom: 1px solid #eee; padding-bottom: 0.5em; }
+p { text-indent: 2em; margin: 0.8em 0; text-align: justify; }`;
+            zip.file("OEBPS/style.css", css);
+
+            const manifestItems = [
+                '<item id="style" href="style.css" media-type="text/css"/>',
+                '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>'
+            ];
+            const spineItems = [];
+            const ncxPoints = [];
+
+            for (let idx = 0; idx < chapters.length; idx++) {
+                const ch = chapters[idx];
+                const chNum = idx + 1;
+                const padNum = String(chNum).padStart(4, '0');
+                const filename = `chapter_${padNum}.xhtml`;
+
+                const parasHtml = ch.body.split(/\n+/).map(p => {
+                    const clean = p.trim();
+                    return clean ? `<p>${escapeHtml(clean)}</p>` : '';
+                }).filter(Boolean).join('\n  ');
+
+                const xhtml = `<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <title>${escapeHtml(ch.title)}</title>
+  <link rel="stylesheet" href="style.css" type="text/css"/>
+</head>
+<body>
+  <h2>${escapeHtml(ch.title)}</h2>
+  ${parasHtml}
+</body>
+</html>`;
+
+                zip.file(`OEBPS/${filename}`, xhtml);
+                manifestItems.push(`<item id="ch${chNum}" href="${filename}" media-type="application/xhtml+xml"/>`);
+                spineItems.push(`<itemref idref="ch${chNum}"/>`);
+                ncxPoints.push(`    <navPoint id="np${chNum}" playOrder="${chNum}">
+      <navLabel><text>${escapeHtml(ch.title)}</text></navLabel>
+      <content src="${filename}"/>
+    </navPoint>`);
+            }
+
+            const opf = `<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookID" version="2.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>${escapeHtml(bookTitle)}</dc:title>
+    <dc:creator>${escapeHtml(bookAuthor)}</dc:creator>
+    <dc:publisher>@NeuroStarNet</dc:publisher>
+    <dc:language>zh</dc:language>
+    <dc:identifier id="BookID">urn:uuid:txt2epub-${Date.now()}</dc:identifier>
+  </metadata>
+  <manifest>
+    ${manifestItems.join('\n    ')}
+  </manifest>
+  <spine toc="ncx">
+    ${spineItems.join('\n    ')}
+  </spine>
+</package>`;
+            zip.file("OEBPS/content.opf", opf);
+
+            const ncx = `<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <head>
+    <meta name="dtb:uid" content="urn:uuid:txt2epub-${Date.now()}"/>
+    <meta name="dtb:depth" content="1"/>
+    <meta name="dtb:totalPageCount" content="0"/>
+    <meta name="dtb:maxPageNumber" content="0"/>
+  </head>
+  <docTitle><text>${escapeHtml(bookTitle)}</text></docTitle>
+  <navMap>
+${ncxPoints.join('\n')}
+  </navMap>
+</ncx>`;
+            zip.file("OEBPS/toc.ncx", ncx);
+
+            return zip;
+        }
+
         async function processFile(file) {
             state.currentFile = file;
             log(`Загружен: ${file.name}`, 'info');
@@ -2652,7 +2890,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             document.getElementById('file-size').textContent = formatSize(file.size);
 
             try {
-                const zip = await JSZip.loadAsync(file);
+                let zip;
+                const isTxt = file.name.toLowerCase().endsWith('.txt') || file.type === 'text/plain';
+                if (isTxt) {
+                    log(`📄 Распознан текстовый файл (.txt). Парсинг глав и авто-конвертация в EPUB...`, 'info');
+                    zip = await convertTxtToEpubZip(file);
+                } else {
+                    zip = await JSZip.loadAsync(file);
+                }
                 state.epubData = { zip, chapters: [] };
                 const chapters = await parseEpubStructure(zip);
                 state.epubData.chapters = chapters;
@@ -3271,7 +3516,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                 if (Object.keys(state.glossary).length > 0) {
                     const maxTerms = parseInt(document.getElementById('max-glossary-terms').value) || 60;
                     const relevant = filterGlossary(state.glossary, chunk, maxTerms);
-                    glossaryText = Object.entries(relevant).map(([k, v]) => `${k}: ${v.translation}`).join('\n');
+                    glossaryText = formatGlossaryForPrompt(relevant);
                 }
 
                 const translationPromptTpl = document.getElementById('translation-prompt')?.value || DEFAULT_TRANSLATION_PROMPT;
@@ -3390,7 +3635,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                 const maxTerms = parseInt(document.getElementById('max-glossary-terms').value) || 60;
                 const joined = chapters.map(c => String(c.content || '')).join('\n\n');
                 const relevant = filterGlossary(state.glossary, joined, maxTerms);
-                glossaryText = Object.entries(relevant).map(([k, v]) => `${k}: ${v.translation}`).join('\n');
+                glossaryText = formatGlossaryForPrompt(relevant);
             }
 
             const translationPromptTpl = document.getElementById('translation-prompt')?.value || DEFAULT_TRANSLATION_PROMPT;
@@ -3556,6 +3801,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                     return result;
 
                 } catch (e) {
+                    if (e.name === 'AbortError' || e instanceof OperationCancelledError || state.cancelRequested || cancelGlossaryRequested) {
+                        throw new OperationCancelledError('Cancelled');
+                    }
                     if (e instanceof ContentBlockedError) throw e;
 
                     if (e instanceof TemporaryRateLimitError) {
@@ -3790,6 +4038,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                 }
             }
 
+            // Temperature configuration
+            const userTemp = parseFloat(document.getElementById('temperature-input')?.value);
+            if (!isNaN(userTemp) && userTemp >= 0 && userTemp <= 1.0) {
+                if (modelConfig.supportsTemperature !== false) {
+                    body.generationConfig.temperature = userTemp;
+                }
+            }
+
             const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -3833,10 +4089,15 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             messages.push({ role: 'user', content: prompt });
 
             await checkPauseAndCancel();
+            const reqBody = { model: modelConfig.id, messages, max_tokens: modelConfig.maxOutputTokens };
+            const userTemp = parseFloat(document.getElementById('temperature-input')?.value);
+            if (!isNaN(userTemp) && userTemp >= 0 && userTemp <= 1.0) {
+                reqBody.temperature = userTemp;
+            }
             const response = await fetch(baseUrl, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ model: modelConfig.id, messages, max_tokens: modelConfig.maxOutputTokens }),
+                body: JSON.stringify(reqBody),
                 signal: state.abortController?.signal
             });
 
@@ -4252,18 +4513,35 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                         const isGoogleFallback = Boolean(chapter.isGoogleFallback || (typeof chapter.content === 'string' && chapter.content.includes('filtered-chapter-warning')));
             const titleText = chapter.title || `Глава ${index + 1}`;
                         // Ratio check
-            const origRaw = chapter.original?.content || '';
+            let origRaw = chapter.original?.content || '';
+            if (!origRaw && state.epubData?.zip && (chapter.original?.path || chapter.path)) {
+                try {
+                    origRaw = await state.epubData.zip.file(chapter.original?.path || chapter.path).async('string');
+                    if (chapter.original) chapter.original.content = origRaw;
+                } catch {}
+            }
+
             const transRaw = chapter.content || '';
-            const origCleanLen = origRaw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
-            const transCleanLen = transRaw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
-            const ratio = origCleanLen > 0 ? Math.round((transCleanLen / origCleanLen) * 100) : 100;
+            const origClean = origRaw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+            const transClean = transRaw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+            const origCleanLen = origClean.length;
+            const transCleanLen = transClean.length;
+
+            // Density check: CJK characters (Chinese, Japanese, Korean) convey ~2.5x more meaning per character than Russian
+            const isCJK = /[\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af]/.test(origClean);
+            const expectedMultiplier = isCJK ? 2.5 : 1.0;
+            const expectedLen = Math.round(origCleanLen * expectedMultiplier);
+            const ratio = expectedLen > 0 ? Math.round((transCleanLen / expectedLen) * 100) : (transCleanLen > 0 ? 100 : 0);
+
             let ratioBadge = '';
             if (transCleanLen === 0) {
                 ratioBadge = '<span class="px-2 py-0.5 rounded text-xs bg-red-500/20 text-red-300 font-medium ml-2"><i class="fas fa-exclamation-circle mr-1"></i>Пустая глава (0%)</span>';
-            } else if (ratio < 25 && origCleanLen > 200) {
-                ratioBadge = `<span class="px-2 py-0.5 rounded text-xs bg-orange-500/20 text-orange-300 font-medium ml-2" title="Перевод подозрительно короткий относительно оригинала"><i class="fas fa-compress-arrows-alt mr-1"></i>Обрезано (${ratio}%)</span>`;
+            } else if (ratio < 30 && origCleanLen > 80) {
+                ratioBadge = `<span class="px-2 py-0.5 rounded text-xs bg-orange-500/20 text-orange-300 font-medium ml-2" title="Перевод подозрительно короткий относительно оригинала (${ratio}% от нормы)"><i class="fas fa-compress-arrows-alt mr-1"></i>Обрезано (${ratio}%)</span>`;
+            } else if (ratio > 160) {
+                ratioBadge = `<span class="px-2 py-0.5 rounded text-xs bg-blue-500/20 text-blue-300 font-medium ml-2"><i class="fas fa-expand-arrows-alt mr-1"></i>Расширенный (${ratio}%)</span>`;
             } else {
-                ratioBadge = `<span class="px-2 py-0.5 rounded text-xs bg-white/10 text-gray-400 text-[11px] ml-2">${ratio}% объема</span>`;
+                ratioBadge = `<span class="px-2 py-0.5 rounded text-xs bg-white/10 text-gray-300 text-[11px] ml-2 font-mono">${ratio}% объема</span>`;
             }
 
             document.getElementById('current-chapter-name').innerHTML = `${escapeHtml(titleText)} ${isGoogleFallback ? '<span class="px-2 py-0.5 rounded text-xs bg-yellow-500/20 text-yellow-300 font-medium ml-2"><i class="fas fa-shield-alt mr-1"></i>Google Translate</span>' : ''} ${ratioBadge}`;
@@ -4339,12 +4617,24 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
             for (let i = 0; i < chapters.length; i++) {
                 const ch = chapters[i];
-                const origRaw = ch.original?.content || '';
-                const origLen = origRaw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
-                const transLen = (ch.content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
+                let origRaw = ch.original?.content || '';
+                if (!origRaw && state.epubData?.zip && (ch.original?.path || ch.path)) {
+                    try {
+                        origRaw = await state.epubData.zip.file(ch.original?.path || ch.path).async('string');
+                        if (ch.original) ch.original.content = origRaw;
+                    } catch {}
+                }
+                const origClean = origRaw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+                const transClean = (ch.content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+                const origLen = origClean.length;
+                const transLen = transClean.length;
 
-                // Empty or severely truncated (< 20% of original when original > 200 chars)
-                if (!hasMeaningfulText(ch.content) || (origLen > 200 && transLen < origLen * 0.20)) {
+                const isCJK = /[\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af]/.test(origClean);
+                const expectedMultiplier = isCJK ? 2.5 : 1.0;
+                const expectedLen = origLen * expectedMultiplier;
+
+                // Empty or severely truncated (< 25% of expected length when original > 80 chars)
+                if (!hasMeaningfulText(ch.content) || (origLen > 80 && transLen < expectedLen * 0.25)) {
                     emptyIndices.push(i);
                 }
             }
@@ -4820,6 +5110,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                     chunkSize: document.getElementById('chunk-size').value,
                     maxGlossaryTerms: document.getElementById('max-glossary-terms').value,
                     maxRetries: document.getElementById('max-retries').value,
+                    temperature: document.getElementById('temperature-input')?.value || '0.3',
+                    sendGlossaryNotes: document.getElementById('send-glossary-notes')?.checked ?? true,
                     createGlossary: document.getElementById('create-glossary').checked,
                     keepCensored: document.getElementById('keep-censored').checked,
                     autoSave: document.getElementById('auto-save').checked
@@ -4854,6 +5146,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                         document.getElementById('chunk-size').value = data.settings.chunkSize || 50000;
                         document.getElementById('max-glossary-terms').value = data.settings.maxGlossaryTerms || 60;
                         document.getElementById('max-retries').value = data.settings.maxRetries || 2;
+                        if (data.settings.temperature) { document.getElementById('temperature-input').value = data.settings.temperature; document.getElementById('temperature-val').textContent = parseFloat(data.settings.temperature).toFixed(2); }
+                        if (data.settings.sendGlossaryNotes != null) document.getElementById('send-glossary-notes').checked = Boolean(data.settings.sendGlossaryNotes);
                         document.getElementById('create-glossary').checked = data.settings.createGlossary !== false;
                         document.getElementById('keep-censored').checked = data.settings.keepCensored !== false;
                         document.getElementById('auto-save').checked = data.settings.autoSave !== false;
@@ -4969,6 +5263,19 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         // =============================================
         // UTILITIES
         // =============================================
+        function formatGlossaryForPrompt(relevantTerms) {
+            if (!relevantTerms || typeof relevantTerms !== 'object') return '';
+            const includeNotes = document.getElementById('send-glossary-notes')?.checked ?? true;
+            const entries = Object.entries(relevantTerms);
+            if (entries.length === 0) return '';
+            return entries.map(([orig, data]) => {
+                const tr = (typeof data === 'string') ? data : (data?.translation || data?.rus || '');
+                if (!tr) return '';
+                const note = (includeNotes && typeof data === 'object' && data?.note) ? ` [${String(data.note).trim()}]` : '';
+                return `${orig}: ${tr}${note}`;
+            }).filter(Boolean).join('\n');
+        }
+
         function filterGlossary(glossary, text, maxTerms = 60) {
             if (!glossary || !text) return {};
             const normalizedText = text.toLowerCase().normalize('NFKC');
@@ -5152,7 +5459,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             if (Object.keys(state.glossary).length > 0) {
                 const maxTerms = parseInt(document.getElementById('max-glossary-terms').value) || 60;
                 const relevant = filterGlossary(state.glossary, content, maxTerms);
-                glossaryText = Object.entries(relevant).map(([k, v]) => `${k}: ${v.translation}`).join('\n');
+                glossaryText = formatGlossaryForPrompt(relevant);
             }
 
             const translationPrompt = document.getElementById('translation-prompt').value || DEFAULT_TRANSLATION_PROMPT;
@@ -6265,37 +6572,44 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             return tpl.replace('{text}', contextBlock + textForAi);
         }
 
-        function glossaryGeneratorBuildPreview() {
+        async function glossaryGeneratorBuildPreview() {
             const warnEl = document.getElementById('gg-preview-warn');
             warnEl.classList.add('hidden');
             warnEl.textContent = '';
 
             if (!state.epubData?.chapters?.length) {
-                showToast('Сначала загрузите EPUB', 'warning');
+                showToast('Сначала загрузите EPUB или TXT', 'warning');
                 return;
             }
 
             const start = parseInt(document.getElementById('gg-start').value) || 1;
             const end = parseInt(document.getElementById('gg-end').value) || start;
-
-            // Build with placeholder text for preview quickly (without reading full chapters)
             const total = state.epubData.chapters.length;
             const from = Math.max(1, Math.min(Math.min(start, end), total));
             const to = Math.max(1, Math.min(Math.max(start, end), total));
+            const batchSize = Math.max(1, parseInt(document.getElementById('gg-batch-size')?.value || '20', 10));
+            const previewEnd = Math.min(from + batchSize - 1, to);
 
-            const fakeText = `[ТЕКСТ БУДЕТ СОБРАН ИЗ ГЛАВ ${from}–${to}]\n(превью показывает структуру промпта; реальный текст будет подставлен при запуске)`;
-            const prompt = buildGlossaryGeneratorPrompt(fakeText);
+            // Collect realistic sample text from the first batch
+            let sampleText = '';
+            try {
+                const res = await glossaryGeneratorCollectTextFromChapters(from, previewEnd);
+                sampleText = res.combinedText || '';
+            } catch (e) {
+                sampleText = `[ТЕКСТ БУДЕТ СОБРАН ИЗ ГЛАВ ${from}–${to}]\n(превью показывает структуру промпта; реальный текст будет подставлен при запуске)`;
+            }
 
+            const prompt = buildGlossaryGeneratorPrompt(sampleText || `[ТЕКСТ ГЛАВ ${from}–${previewEnd}]`);
             glossaryGeneratorPreviewPrompt = prompt;
             document.getElementById('gg-preview').textContent = prompt;
 
             const estTokens = Math.round(prompt.length / 3.5);
             const lim = Math.max(1000, parseInt(document.getElementById('gg-token-limit')?.value) || 60000);
             if (estTokens > lim) {
-                warnEl.innerHTML = `<b>Предупреждение:</b> превью ≈ <b>${formatNumber(estTokens)}</b> токенов, больше лимита <b>${formatNumber(lim)}</b>.\nУменьшите диапазон глав или отключите примечания.`;
+                warnEl.innerHTML = `<b>Предупреждение:</b> превью первого пакета ≈ <b>${formatNumber(estTokens)}</b> токенов, больше лимита <b>${formatNumber(lim)}</b>.\nУменьшите размер пакета или диапазон глав.`;
                 warnEl.classList.remove('hidden');
             } else {
-                showToast(`Превью собрано (≈ ${formatNumber(estTokens)} токенов)`, 'success');
+                showToast(`Превью пакета собрано (≈ ${formatNumber(estTokens)} токенов)`, 'success');
             }
         }
 
@@ -6307,7 +6621,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             if (state.abortController) {
                 try { state.abortController.abort(); } catch {}
             }
-            log('Остановка AI‑генерации глоссария...', 'warning');
+            isGlossaryGenerating = false;
+            const runBtn = document.getElementById('gg-run-btn');
+            if (runBtn) {
+                runBtn.disabled = false;
+                runBtn.classList.remove('opacity-50');
+            }
+            log('⏹️ Остановка AI‑генерации глоссария...', 'warning');
             showToast('Остановка генерации...', 'warning');
         }
 
@@ -6977,6 +7297,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         // =============================================
         function initAppV99() {
             loadState();
+            loadSettingsFromStorage();
             initProjectFolder();
             populateProviderSelect();
             updateUI();
