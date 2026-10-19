@@ -2973,6 +2973,24 @@ ${ncxPoints.join('\n')}
                     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
                     .forEach((f, i) => chapters.push({ id: `ch${i}`, path: f, title: `Глава ${i + 1}` }));
             }
+
+            // Pre-parse real chapter titles from NCX if present
+            try {
+                let ncxFile = null;
+                for (const fn of Object.keys(zip.files)) {
+                    if (fn.toLowerCase().endsWith('.ncx')) { ncxFile = zip.files[fn]; break; }
+                }
+                if (ncxFile) {
+                    const ncxStr = await ncxFile.async('string');
+                    const ncxMap = parseNcxTitles(ncxStr);
+                    for (const ch of chapters) {
+                        const fname = ch.path.split('/').pop();
+                        const realTitle = ncxMap[ch.path] || ncxMap[fname];
+                        if (realTitle) ch.title = realTitle;
+                    }
+                }
+            } catch (e) { console.warn('NCX title pre-parse error:', e); }
+
             return chapters;
         }
 
@@ -4136,11 +4154,154 @@ ${ncxPoints.join('\n')}
             showToast('Перевод завершён!', 'success');
         }
 
+        // =============================================
+        // EPUB TOC & METADATA TRANSLATION HELPERS
+        // =============================================
+        function escapeXml(unsafe) {
+            return String(unsafe || '').replace(/[<>&'"]/g, c => {
+                switch (c) {
+                    case '<': return '&lt;';
+                    case '>': return '&gt;';
+                    case '&': return '&amp;';
+                    case "'": return '&apos;';
+                    case '"': return '&quot;';
+                    default: return c;
+                }
+            });
+        }
+
+        function extractChapterTitleFromHtml(html) {
+            if (!html || typeof html !== 'string') return '';
+            try {
+                // 1. Look for h1, h2, h3 tags
+                for (const tag of ['h1', 'h2', 'h3']) {
+                    const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i');
+                    const m = html.match(re);
+                    if (m && m[1]) {
+                        const clean = m[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+                        if (clean && clean.length < 150) return clean;
+                    }
+                }
+
+                // 2. Look for elements with class containing chapterTitle or title
+                const classMatch = html.match(/<(?:p|div|header)\b[^>]*class="[^"]*(?:chapterTitle|chapter-title|chapter_title|heading_title)[^"]*"[^>]*>([\s\S]*?)<\/(?:p|div|header)>/i);
+                if (classMatch && classMatch[1]) {
+                    const clean = classMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+                    if (clean && clean.length < 150) return clean;
+                }
+
+                // 3. Look for <title> in head
+                const titleMatch = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
+                if (titleMatch && titleMatch[1]) {
+                    const clean = titleMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+                    const low = clean.toLowerCase();
+                    if (clean && clean.length < 150 && !low.includes('untitled') && !low.includes('без названия') && !low.includes('index') && !low.includes('cover')) {
+                        return clean;
+                    }
+                }
+
+                // 4. Look for paragraph or strong starting with Chapter/Глава
+                const paraRegex = /<(?:p|div|strong|b)\b[^>]*>([\s\S]*?)<\/(?:p|div|strong|b)>/gi;
+                let pm;
+                while ((pm = paraRegex.exec(html)) !== null) {
+                    const clean = pm[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+                    if (/^(?:Глава|Часть|Раздел|Эпизод|Пролог|Эпилог|Интерлюдия|Chapter)\s*\d*/i.test(clean) && clean.length < 120) {
+                        return clean;
+                    }
+                }
+            } catch (e) {
+                console.warn('Error extracting chapter title:', e);
+            }
+            return '';
+        }
+
+        async function translateShortTitleWithGoogleWeb(titleText) {
+            if (!titleText || typeof titleText !== 'string' || !titleText.trim()) return titleText;
+            if (!/[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(titleText)) return titleText;
+            try {
+                const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=ru&dt=t&q=' + encodeURIComponent(titleText.trim());
+                const res = await fetch(url);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (Array.isArray(data) && Array.isArray(data[0])) {
+                        const tr = data[0].map(item => item[0]).join('').trim();
+                        if (tr) return tr;
+                    }
+                }
+            } catch (e) {
+                console.warn('Could not translate title with Google Web:', e);
+            }
+            return titleText;
+        }
+
+        function parseNcxTitles(ncxText) {
+            const titles = {};
+            if (!ncxText) return titles;
+            const pattern = /<navPoint\b[\s\S]*?<\/navPoint>/gi;
+            let m;
+            while ((m = pattern.exec(ncxText)) !== null) {
+                const block = m[0];
+                const cMatch = block.match(/<content\s+src="([^"#?]+)/i);
+                const tMatch = block.match(/<navLabel\b[^>]*>\s*<text\b[^>]*>([\s\S]*?)<\/text>\s*<\/navLabel>/i);
+                if (cMatch && tMatch) {
+                    const src = cMatch[1].trim();
+                    const fname = src.split('/').pop();
+                    const title = tMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+                    if (title) {
+                        titles[src] = title;
+                        titles[fname] = title;
+                    }
+                }
+            }
+            return titles;
+        }
+
+        function updateNcxContent(ncxText, titlesMap) {
+            if (!ncxText || !titlesMap || titlesMap.size === 0) return ncxText;
+            return ncxText.replace(/<navPoint\b[\s\S]*?<\/navPoint>/gi, block => {
+                const cMatch = block.match(/<content\s+src="([^"#?]+)/i);
+                if (!cMatch) return block;
+                const rawSrc = cMatch[1].trim();
+                const fname = rawSrc.split('/').pop();
+                const newTitle = titlesMap.get(rawSrc) || titlesMap.get(fname);
+                if (!newTitle) return block;
+
+                return block.replace(/(<navLabel\b[^>]*>\s*<text\b[^>]*>)([\s\S]*?)(<\/text>\s*<\/navLabel>)/i, (m, p1, p2, p3) => {
+                    return p1 + escapeXml(newTitle) + p3;
+                });
+            });
+        }
+
+        function updateNavContent(navText, titlesMap) {
+            if (!navText || !titlesMap || titlesMap.size === 0) return navText;
+            return navText.replace(/<a\s+[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, (tag, href, text) => {
+                const cleanHref = href.split('#')[0].split('?')[0].trim();
+                const fname = cleanHref.split('/').pop();
+                const newTitle = titlesMap.get(cleanHref) || titlesMap.get(fname);
+                if (!newTitle) return tag;
+                return tag.replace(text, escapeXml(newTitle));
+            });
+        }
+
+        function updateOpfContent(opfText) {
+            if (!opfText) return opfText;
+            let out = opfText;
+            if (/<dc:language\b[^>]*>[\s\S]*?<\/dc:language>/i.test(out)) {
+                out = out.replace(/<dc:language\b[^>]*>[\s\S]*?<\/dc:language>/i, '<dc:language>ru</dc:language>');
+            } else if (/<metadata\b[^>]*>/i.test(out)) {
+                out = out.replace(/(<metadata\b[^>]*>)/i, '$1\n    <dc:language>ru</dc:language>');
+            }
+            if (!out.includes('@NeuroStarNet') && /<metadata\b[^>]*>/i.test(out)) {
+                out = out.replace(/(<metadata\b[^>]*>)/i, '$1\n    <dc:publisher>@NeuroStarNet</dc:publisher>');
+            }
+            return out;
+        }
+
         async function downloadEpub() {
             if (!state.translatedChapters.length) { showToast('Нет глав', 'error'); return; }
             if (!state.epubData?.zip) { showToast('Нет исходного EPUB в памяти', 'error'); return; }
 
-            log('Сборка EPUB (обновление оригинала, сохранение стилей/обложки/картинок)...', 'info');
+            log('Сборка EPUB (перевод оглавления, сохранение стилей/обложки/картинок)...', 'info');
 
             const originalZip = state.epubData.zip;
             const outZip = new JSZip();
@@ -4158,6 +4319,49 @@ ${ncxPoints.join('\n')}
 
             log(`Сборка EPUB: заменено переведённых глав: ${translationMap.size} из ${state.epubData.chapters.length}`, 'info');
 
+            // --- BUILD TRANSLATED TITLES MAP FOR TOC (NCX & NAV) ---
+            const titlesUpdateMap = new Map();
+            const chaptersByPath = new Map((state.epubData?.chapters || []).map(ch => [ch.path, ch]));
+
+            for (const [chPath, htmlContent] of translationMap.entries()) {
+                const origCh = chaptersByPath.get(chPath);
+                const fname = chPath.split('/').pop();
+
+                // 1. Try to extract heading from translated HTML body
+                let extractedTitle = extractChapterTitleFromHtml(htmlContent);
+
+                // 2. If no Cyrillic heading extracted, check original title or fallback
+                if (!extractedTitle || !/[а-яА-ЯёЁ]/.test(extractedTitle)) {
+                    const origTitle = origCh?.title || '';
+                    if (origTitle && /[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(origTitle)) {
+                        try {
+                            const tr = await translateShortTitleWithGoogleWeb(origTitle);
+                            if (tr && /[а-яА-ЯёЁ]/.test(tr)) extractedTitle = tr;
+                        } catch {}
+                    }
+                }
+
+                if (!extractedTitle && origCh?.title) {
+                    extractedTitle = origCh.title;
+                }
+
+                if (extractedTitle) {
+                    titlesUpdateMap.set(chPath, extractedTitle);
+                    titlesUpdateMap.set(fname, extractedTitle);
+
+                    // Update <title> in the chapter's XHTML
+                    let updatedHtml = htmlContent;
+                    if (/<title\b[^>]*>[\s\S]*?<\/title>/i.test(updatedHtml)) {
+                        updatedHtml = updatedHtml.replace(/<title\b[^>]*>[\s\S]*?<\/title>/i, `<title>${escapeXml(extractedTitle)}</title>`);
+                    } else if (/<head\b[^>]*>/i.test(updatedHtml)) {
+                        updatedHtml = updatedHtml.replace(/(<head\b[^>]*>)/i, `$1\n  <title>${escapeXml(extractedTitle)}</title>`);
+                    }
+                    translationMap.set(chPath, updatedHtml);
+                }
+            }
+
+            log(`Сборка EPUB: обновлено названий в оглавлении (TOC): ${titlesUpdateMap.size / 2}`, 'info');
+
             const names = Object.keys(originalZip.files);
             let processed = 0;
 
@@ -4171,6 +4375,47 @@ ${ncxPoints.join('\n')}
                     continue;
                 }
 
+                const lowerName = name.toLowerCase();
+
+                // NCX Table of Contents update (EPUB 2)
+                if (lowerName.endsWith('.ncx')) {
+                    try {
+                        const ncxRaw = await originalZip.file(name).async('string');
+                        const updatedNcx = updateNcxContent(ncxRaw, titlesUpdateMap);
+                        outZip.file(name, updatedNcx);
+                        processed++;
+                        continue;
+                    } catch (e) {
+                        console.warn('NCX update error:', e);
+                    }
+                }
+
+                // NAV / TOC Table of Contents update (EPUB 3)
+                if (lowerName.endsWith('nav.xhtml') || lowerName.endsWith('toc.xhtml') || lowerName.endsWith('nav.html') || lowerName.endsWith('toc.html')) {
+                    try {
+                        const navRaw = await originalZip.file(name).async('string');
+                        const updatedNav = updateNavContent(navRaw, titlesUpdateMap);
+                        outZip.file(name, updatedNav);
+                        processed++;
+                        continue;
+                    } catch (e) {
+                        console.warn('NAV update error:', e);
+                    }
+                }
+
+                // OPF Package Document metadata update (dc:language -> ru, publisher)
+                if (lowerName.endsWith('.opf')) {
+                    try {
+                        const opfRaw = await originalZip.file(name).async('string');
+                        const updatedOpf = updateOpfContent(opfRaw);
+                        outZip.file(name, updatedOpf);
+                        processed++;
+                        continue;
+                    } catch (e) {
+                        console.warn('OPF update error:', e);
+                    }
+                }
+
                 const data = await originalZip.file(name).async('uint8array');
                 const opts = (name === 'mimetype') ? { compression: 'STORE' } : undefined;
                 outZip.file(name, data, opts);
@@ -4178,14 +4423,14 @@ ${ncxPoints.join('\n')}
                 if (processed % 25 === 0) await sleep(0);
             }
 
-            const title = (state.currentFile?.name || 'Book').replace(/\.epub$/i, '');
+            const title = (state.currentFile?.name || 'Book').replace(/\.epub$/i, '').replace(/\.txt$/i, '');
             const blob = await outZip.generateAsync({ type: 'blob', mimeType: 'application/epub+zip' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
             a.download = `${title}_RU.epub`;
             a.click();
             URL.revokeObjectURL(a.href);
-            log('EPUB скачан (форматирование оригинала сохранено)', 'success');
+            log('EPUB скачан (оглавление переведено на русский язык)', 'success');
         }
 
         function downloadGlossary() {
