@@ -1835,22 +1835,22 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                 rpd: 1500,
                 visible: true,
                 models: {
-                    "Gemini 3.8 Flash": { id: "gemini-3.8-flash", rpm: 5, rpd: 20, maxOutputTokens: 65536, contextLength: 230000, thinkingLevel: ["high", "medium", "low", "minimal"], minThinkingBudget: "minimal" },
-                    "Gemini 3.7 Flash": { id: "gemini-3.7-flash", rpm: 5, rpd: 20, maxOutputTokens: 65536, contextLength: 230000, thinkingLevel: ["high", "medium", "low", "minimal"], minThinkingBudget: "minimal" },
-                    "Gemini 3.6 Flash": { id: "gemini-3.6-flash", rpm: 5, rpd: 20, maxOutputTokens: 65536, contextLength: 230000, thinkingLevel: ["high", "medium", "low", "minimal"], minThinkingBudget: "minimal" },
-                    "Gemini 3.5 Flash-Lite": { id: "gemini-3.5-flash-lite", rpm: 15, rpd: 500, maxOutputTokens: 65536, contextLength: 230000, thinkingLevel: ["high", "medium", "low", "minimal"], minThinkingBudget: "minimal" },
-                    "Gemini 3.5 Flash": { id: "gemini-3.5-flash", rpm: 5, rpd: 20, maxOutputTokens: 32768, contextLength: 230000, thinkingLevel: ["high", "medium", "low", "minimal"], minThinkingBudget: "minimal" },
-                    "Gemini 3.1 Flash-Lite": { id: "gemini-3.1-flash-lite-preview", rpm: 15, rpd: 500, maxOutputTokens: 32000, contextLength: 230000, minThinkingBudget: -1 },
-                    "Gemini 3.0 Flash Preview": { id: "gemini-3-flash-preview", rpm: 5, rpd: 20, maxOutputTokens: 32768, contextLength: 230000, thinkingLevel: ["high", "medium", "low", "minimal"], minThinkingBudget: "minimal" },
-                    "Gemini 3.1 Pro Preview": { id: "gemini-3.1-pro-preview", rpm: 2, rpd: 20, maxOutputTokens: 32768, contextLength: 110000, thinkingLevel: ["high", "medium", "low"], minThinkingBudget: "low" },
-                    "Gemini 3.0 Pro Preview": { id: "gemini-3.0-pro-preview", rpm: 2, rpd: 20, maxOutputTokens: 32768, contextLength: 110000, thinkingLevel: ["high", "low"], minThinkingBudget: "low" },
-                    "Gemini 2.5 Flash": { id: "gemini-2.5-flash", rpm: 5, rpd: 20, maxOutputTokens: 32768, contextLength: 230000, minThinkingBudget: -1 },
-                    "Gemini 2.5 Pro": { id: "gemini-2.5-pro", rpm: 2, maxOutputTokens: 32768, contextLength: 110000, minThinkingBudget: 768 },
-                    "Gemini 2.5 Flash-Lite": { id: "gemini-2.5-flash-lite", rpm: 10, rpd: 20, maxOutputTokens: 16384, contextLength: 230000, minThinkingBudget: -1 },
-                    "Gemini 2.0 Flash": { id: "gemini-2.0-flash", rpm: 10, maxOutputTokens: 16384, contextLength: 950000 },
-                    "Gemma 4 31B Instruct": { id: "gemma-4-31b-it", rpm: 2, rpd: 0, maxOutputTokens: 8192, contextLength: 12000, minThinkingBudget: "minimal" },
+                    "Gemini 3.8 Flash": { id: "gemini-3.8-flash", rpm: 15, rpd: 1500, maxOutputTokens: 65536, contextLength: 230000, thinkingLevel: ["high", "medium", "low", "minimal"], minThinkingBudget: "minimal" },
+                    "Gemini 3.7 Flash": { id: "gemini-3.7-flash", rpm: 15, rpd: 1500, maxOutputTokens: 65536, contextLength: 230000, thinkingLevel: ["high", "medium", "low", "minimal"], minThinkingBudget: "minimal" },
+                    "Gemini 3.6 Flash": { id: "gemini-3.6-flash", rpm: 15, rpd: 1500, maxOutputTokens: 65536, contextLength: 230000, thinkingLevel: ["high", "medium", "low", "minimal"], minThinkingBudget: "minimal" },
+                    "Gemini 3.5 Flash-Lite": { id: "gemini-3.5-flash-lite", rpm: 15, rpd: 1500, maxOutputTokens: 65536, contextLength: 230000, thinkingLevel: ["high", "medium", "low", "minimal"], minThinkingBudget: "minimal" },
+                    "Gemini 3.5 Flash": { id: "gemini-3.5-flash", rpm: 15, rpd: 1500, maxOutputTokens: 32768, contextLength: 230000, thinkingLevel: ["high", "medium", "low", "minimal"], minThinkingBudget: "minimal" },
+                    "Gemini 3.1 Flash-Lite": { id: "gemini-3.1-flash-lite-preview", rpm: 15, rpd: 1500, maxOutputTokens: 32000, contextLength: 230000, minThinkingBudget: -1 },
+                    "Gemini 3.0 Flash Preview": { id: "gemini-3-flash-preview", rpm: 15, rpd: 1500, maxOutputTokens: 32768, contextLength: 230000, thinkingLevel: ["high", "medium", "low", "minimal"], minThinkingBudget: "minimal" },
+                    "Gemini 3.1 Pro Preview": { id: "gemini-3.1-pro-preview", rpm: 5, rpd: 50, maxOutputTokens: 32768, contextLength: 110000, thinkingLevel: ["high", "medium", "low"], minThinkingBudget: "low" },
+                    "Gemini 3.0 Pro Preview": { id: "gemini-3.0-pro-preview", rpm: 5, rpd: 50, maxOutputTokens: 32768, contextLength: 110000, thinkingLevel: ["high", "low"], minThinkingBudget: "low" },
+                    "Gemini 2.5 Flash": { id: "gemini-2.5-flash", rpm: 15, rpd: 1500, maxOutputTokens: 32768, contextLength: 230000, minThinkingBudget: -1 },
+                    "Gemini 2.5 Pro": { id: "gemini-2.5-pro", rpm: 5, rpd: 50, maxOutputTokens: 32768, contextLength: 110000, minThinkingBudget: 768 },
+                    "Gemini 2.5 Flash-Lite": { id: "gemini-2.5-flash-lite", rpm: 15, rpd: 1500, maxOutputTokens: 16384, contextLength: 230000, minThinkingBudget: -1 },
+                    "Gemini 2.0 Flash": { id: "gemini-2.0-flash", rpm: 15, rpd: 1500, maxOutputTokens: 16384, contextLength: 950000 },
+                    "Gemma 4 31B Instruct": { id: "gemma-4-31b-it", rpm: 5, rpd: 0, maxOutputTokens: 8192, contextLength: 12000, minThinkingBudget: "minimal" },
                     "Gemma 4 26B": { id: "gemma-4-26b-a4b-it", rpm: 15, rpd: 1500, maxOutputTokens: 128000, contextLength: 180000 },
-                    "Gemma 3 27B": { id: "gemma-3-27b-it", rpm: 2, rpd: 0, maxOutputTokens: 8192, contextLength: 12000 }
+                    "Gemma 3 27B": { id: "gemma-3-27b-it", rpm: 5, rpd: 0, maxOutputTokens: 8192, contextLength: 12000 }
                 }
             },
             deepseek: {
@@ -2399,6 +2399,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                                 <span class="text-xs px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300">${activeCount}/${km.keys.length} активны</span>
                             </div>
                             <div class="flex items-center gap-2">
+                                <button onclick="resetAllKeyStatuses('${provider}')" class="text-xs px-2.5 py-1 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 rounded font-medium transition flex items-center gap-1" title="Сбросить все временные паузы 429 и статусы исчерпания ключей"><i class="fas fa-redo text-[10px]"></i> Сброс блокировок</button>
                                 <button onclick="selectAllKeys(true, '${provider}')" class="text-xs px-2 py-1 bg-white/5 hover:bg-white/10 text-gray-300 rounded transition" title="Включить все ключи этого провайдера">Все</button>
                                 <button onclick="selectAllKeys(false, '${provider}')" class="text-xs px-2 py-1 bg-white/5 hover:bg-white/10 text-gray-300 rounded transition" title="Отключить все ключи этого провайдера">Снять</button>
                             </div>
@@ -3947,7 +3948,8 @@ ${ncxPoints.join('\n')}
                     }
 
                     console.error('API Error:', e);
-                    await sleep(1200);
+                    log(`⚠️ Сбой API (${lease.index + 1}): ${e.message || e}`, 'warning');
+                    await sleep(1500);
                 } finally {
                     try { lease.release(); } catch {}
                 }
@@ -4148,11 +4150,21 @@ ${ncxPoints.join('\n')}
                 }
             }
 
+            // 35-second timeout to prevent indefinite network hanging
+            const fetchTimeout = 35000;
+            const timeoutSignal = (typeof AbortSignal.timeout === 'function') ? AbortSignal.timeout(fetchTimeout) : null;
+            let combinedSignal = state.abortController?.signal;
+            if (timeoutSignal && combinedSignal && typeof AbortSignal.any === 'function') {
+                combinedSignal = AbortSignal.any([combinedSignal, timeoutSignal]);
+            } else if (timeoutSignal && !combinedSignal) {
+                combinedSignal = timeoutSignal;
+            }
+
             const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
-                signal: state.abortController?.signal
+                signal: combinedSignal
             });
 
             if (!response.ok) {
@@ -4216,11 +4228,20 @@ ${ncxPoints.join('\n')}
             if (!isNaN(userTemp) && userTemp >= 0 && userTemp <= 1.0) {
                 reqBody.temperature = userTemp;
             }
+            const fetchTimeout = 35000;
+            const timeoutSignal = (typeof AbortSignal.timeout === 'function') ? AbortSignal.timeout(fetchTimeout) : null;
+            let combinedSignal = state.abortController?.signal;
+            if (timeoutSignal && combinedSignal && typeof AbortSignal.any === 'function') {
+                combinedSignal = AbortSignal.any([combinedSignal, timeoutSignal]);
+            } else if (timeoutSignal && !combinedSignal) {
+                combinedSignal = timeoutSignal;
+            }
+
             const response = await fetch(baseUrl, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify(reqBody),
-                signal: state.abortController?.signal
+                signal: combinedSignal
             });
 
             if (!response.ok) {
