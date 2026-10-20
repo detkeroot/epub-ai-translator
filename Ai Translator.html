@@ -440,8 +440,31 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                                     <div id="original-content" class="bg-white/5 rounded-xl p-4 h-[500px] overflow-y-auto text-sm leading-relaxed"><p class="text-gray-500">Выберите главу для просмотра</p></div>
                                 </div>
                                 <div>
-                                    <div class="text-sm text-gray-400 mb-2 flex items-center gap-2"><i class="fas fa-language"></i> Перевод <span id="translation-status" class="ml-auto"></span></div>
+                                    <div class="text-sm text-gray-400 mb-2 flex items-center justify-between gap-2">
+                                        <div class="flex items-center gap-1.5">
+                                            <i class="fas fa-language"></i>
+                                            <span>Перевод</span>
+                                        </div>
+                                        <div class="flex items-center gap-1.5">
+                                            <button id="btn-edit-translation" onclick="toggleEditTranslation()" class="px-2 py-0.5 bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 rounded text-xs transition flex items-center gap-1 font-medium" title="Вручную отредактировать или вставить свой перевод главы">
+                                                <i class="fas fa-edit"></i> Редактировать
+                                            </button>
+                                            <button id="btn-google-translate-chapter" onclick="translateCurrentChapterWithGoogle()" class="px-2 py-0.5 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 rounded text-xs transition flex items-center gap-1 font-medium" title="Перевести эту главу через Google Web Translate (обход цензуры нейросети)">
+                                                <i class="fas fa-shield-alt text-[10px]"></i> Google
+                                            </button>
+                                            <span id="translation-status"></span>
+                                        </div>
+                                    </div>
                                     <div id="translated-content" class="bg-white/5 rounded-xl p-4 h-[500px] overflow-y-auto text-sm leading-relaxed"><p class="text-gray-500">Выберите главу для просмотра</p></div>
+                                    <div id="translated-editor-container" class="hidden h-[500px] flex flex-col">
+                                        <textarea id="translated-editor" class="w-full flex-1 bg-black/40 border border-indigo-500/50 rounded-xl p-4 text-sm font-sans focus:outline-none focus:border-indigo-400 resize-none leading-relaxed text-gray-200 placeholder-gray-500" placeholder="Вставьте ваш перевод сюда или отредактируйте текст главы..."></textarea>
+                                        <div class="flex justify-end gap-2 mt-2">
+                                            <button onclick="cancelEditTranslation()" class="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs transition">Отмена</button>
+                                            <button onclick="saveEditTranslation()" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-medium transition flex items-center gap-1">
+                                                <i class="fas fa-save mr-1"></i> Сохранить перевод
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
@@ -4113,11 +4136,15 @@ ${ncxPoints.join('\n')}
                 }
             }
 
-            // Temperature configuration
-            const userTemp = parseFloat(document.getElementById('temperature-input')?.value);
-            if (!isNaN(userTemp) && userTemp >= 0 && userTemp <= 1.0) {
-                if (modelConfig.supportsTemperature !== false) {
-                    body.generationConfig.temperature = userTemp;
+            // Temperature configuration:
+            // Google Gemini API rule: temperature is NOT supported when thinking is enabled!
+            // Only attach temperature if thinking mode is explicitly turned off.
+            if (!thinkingEnabled) {
+                const userTemp = parseFloat(document.getElementById('temperature-input')?.value);
+                if (!isNaN(userTemp) && userTemp >= 0 && userTemp <= 1.0) {
+                    if (modelConfig.supportsTemperature !== false) {
+                        body.generationConfig.temperature = userTemp;
+                    }
                 }
             }
 
@@ -4140,7 +4167,27 @@ ${ncxPoints.join('\n')}
                 if (errLower.includes('prohibited') || errLower.includes('safety') || errLower.includes('blocked') || errLower.includes('recitation')) {
                     throw new ContentBlockedError(`Gemini Filter: ${text}`);
                 }
-                throw new NetworkError(`Gemini ${response.status}: ${text}`, 30000);
+                if (response.status === 400) {
+                    // Fast retry if error is due to temperature or thinking conflict
+                    if (errLower.includes('temperature') || errLower.includes('thinking')) {
+                        delete body.generationConfig.temperature;
+                        delete body.generationConfig.thinkingConfig;
+                        const retryRes = await fetch(url, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(body),
+                            signal: state.abortController?.signal
+                        });
+                        if (retryRes.ok) {
+                            const retryData = await retryRes.json();
+                            if (retryData.candidates?.[0]?.content?.parts?.[0]?.text) {
+                                return retryData.candidates[0].content.parts[0].text;
+                            }
+                        }
+                    }
+                    throw new Error(`Gemini 400 Bad Request: ${text.slice(0, 140)}`);
+                }
+                throw new NetworkError(`Gemini ${response.status}: ${text.slice(0, 140)}`, 4000);
             }
 
             const data = await response.json();
@@ -4899,6 +4946,7 @@ ${ncxPoints.join('\n')}
         }
 
         async function selectValidatorChapter(index) {
+            cancelEditTranslation();
             state.validatorData.currentIndex = index;
             const chapter = state.validatorData.chapters[index];
 
@@ -5115,6 +5163,177 @@ ${ncxPoints.join('\n')}
                     btn.disabled = false;
                     btn.classList.remove('opacity-50');
                 }
+            }
+        }
+
+        // =============================================
+        // MANUAL TRANSLATION EDITING IN VALIDATOR
+        // =============================================
+        let isEditingTranslation = false;
+
+        function toggleEditTranslation() {
+            if (isEditingTranslation) {
+                cancelEditTranslation();
+            } else {
+                startEditTranslation();
+            }
+        }
+
+        function startEditTranslation() {
+            if (!state.validatorData?.chapters?.length) {
+                showToast('Сначала выберите главу', 'warning');
+                return;
+            }
+            const idx = state.validatorData.currentIndex;
+            const chapter = state.validatorData.chapters[idx];
+            if (!chapter) return;
+
+            const contentDiv = document.getElementById('translated-content');
+            const editorContainer = document.getElementById('translated-editor-container');
+            const editorTextarea = document.getElementById('translated-editor');
+            const editBtn = document.getElementById('btn-edit-translation');
+
+            if (!contentDiv || !editorContainer || !editorTextarea) return;
+
+            // Extract readable text from chapter HTML for easy editing
+            let rawHtml = chapter.content || '';
+            let plainText = '';
+            if (rawHtml) {
+                const temp = document.createElement('div');
+                temp.innerHTML = rawHtml;
+                // Replace paragraphs with double newlines
+                const paras = Array.from(temp.querySelectorAll('p, h1, h2, h3, div'));
+                if (paras.length > 0) {
+                    plainText = paras.map(p => p.textContent.trim()).filter(Boolean).join('\n\n');
+                } else {
+                    plainText = temp.textContent.trim();
+                }
+            }
+
+            editorTextarea.value = plainText;
+            contentDiv.classList.add('hidden');
+            editorContainer.classList.remove('hidden');
+            isEditingTranslation = true;
+            if (editBtn) {
+                editBtn.innerHTML = '<i class="fas fa-times"></i> Отмена';
+                editBtn.className = 'px-2 py-0.5 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded text-xs transition flex items-center gap-1 font-medium';
+            }
+            editorTextarea.focus();
+        }
+
+        function cancelEditTranslation() {
+            const contentDiv = document.getElementById('translated-content');
+            const editorContainer = document.getElementById('translated-editor-container');
+            const editBtn = document.getElementById('btn-edit-translation');
+
+            if (contentDiv) contentDiv.classList.remove('hidden');
+            if (editorContainer) editorContainer.classList.add('hidden');
+            isEditingTranslation = false;
+            if (editBtn) {
+                editBtn.innerHTML = '<i class="fas fa-edit"></i> Редактировать';
+                editBtn.className = 'px-2 py-0.5 bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 rounded text-xs transition flex items-center gap-1 font-medium';
+            }
+        }
+
+        async function saveEditTranslation() {
+            if (!state.validatorData?.chapters?.length) return;
+            const idx = state.validatorData.currentIndex;
+            const chapter = state.validatorData.chapters[idx];
+            if (!chapter) return;
+
+            const editorTextarea = document.getElementById('translated-editor');
+            const text = (editorTextarea?.value || '').trim();
+
+            if (!text) {
+                showToast('Текст перевода пуст', 'warning');
+                return;
+            }
+
+            // Convert edited plain text into clean XHTML paragraphs with preserved formatting
+            let cleanHtml = '';
+            if (text.includes('<p>') || text.includes('<div>')) {
+                cleanHtml = text;
+            } else {
+                const lines = text.split(/\n\s*\n+/).map(l => l.trim()).filter(Boolean);
+                cleanHtml = lines.map(l => `<p>${escapeHtml(l)}</p>`).join('\n');
+            }
+
+            // Update chapter state
+            chapter.content = cleanHtml;
+            chapter.isGoogleFallback = false;
+            state.validatorData.chapters[idx].content = cleanHtml;
+            state.validatorData.validated.add(idx); // Automatically mark verified
+
+            // Update persistent storage (IndexedDB ChapterStore & cachedChaptersMap)
+            await saveChapterResult(chapter);
+
+            // Update in translatedChapters array
+            if (Array.isArray(state.translatedChapters)) {
+                const tIdx = state.translatedChapters.findIndex(c => c?.path === chapter.path);
+                if (tIdx >= 0) state.translatedChapters[tIdx] = { ...chapter };
+                else state.translatedChapters.push({ ...chapter });
+            }
+
+            cancelEditTranslation();
+            await selectValidatorChapter(idx);
+            renderValidatorChapters();
+
+            showToast('Перевод главы успешно сохранён!', 'success');
+            log(`💾 Ручной перевод сохранён: ${chapter.title || 'Глава ' + (idx + 1)}`, 'success');
+        }
+
+        async function translateCurrentChapterWithGoogle() {
+            if (!state.validatorData?.chapters?.length) {
+                showToast('Сначала выберите главу', 'warning');
+                return;
+            }
+            const idx = state.validatorData.currentIndex;
+            const chapter = state.validatorData.chapters[idx];
+            if (!chapter) return;
+
+            if (!state.epubData?.zip) {
+                showToast('Оригинальный EPUB не загружен', 'warning');
+                return;
+            }
+
+            const origPath = chapter.original?.path || chapter.path;
+            const fileObj = state.epubData.zip.file(origPath);
+            if (!fileObj) {
+                showToast('Не найден оригинальный файл главы', 'error');
+                return;
+            }
+
+            showToast('Перевод главы через Google Web...', 'info');
+            log(`🌐 Перевод через Google Web Translate: ${chapter.title || origPath}...`, 'info');
+
+            const contentDiv = document.getElementById('translated-content');
+            if (contentDiv) contentDiv.innerHTML = '<p class="text-yellow-400"><i class="fas fa-spinner fa-spin mr-2"></i>Перевод через Google Web Translate...</p>';
+
+            try {
+                const origRaw = await fileObj.async('string');
+                const gTrans = await translateWithGoogleWeb(origRaw);
+
+                chapter.content = gTrans;
+                chapter.isGoogleFallback = true;
+                state.validatorData.chapters[idx].content = gTrans;
+                state.validatorData.chapters[idx].isGoogleFallback = true;
+
+                await saveChapterResult(chapter);
+
+                if (Array.isArray(state.translatedChapters)) {
+                    const tIdx = state.translatedChapters.findIndex(c => c?.path === chapter.path);
+                    if (tIdx >= 0) state.translatedChapters[tIdx] = { ...chapter };
+                    else state.translatedChapters.push({ ...chapter });
+                }
+
+                await selectValidatorChapter(idx);
+                renderValidatorChapters();
+                showToast('Глава переведена через Google Web!', 'success');
+                log(`Глава ${idx + 1} ✓ (Google Web Fallback)`, 'success');
+            } catch (e) {
+                showToast(`Ошибка Google Web: ${e.message}`, 'error');
+                log(`Ошибка Google Web: ${e.message}`, 'error');
+                await selectValidatorChapter(idx);
             }
         }
 
