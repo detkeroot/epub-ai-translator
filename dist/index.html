@@ -1693,7 +1693,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                         }
 
                         this._leased.add(key);
-                        this.currentIndex = idx;
+                        this.currentIndex = (idx + 1) % this.keys.length;
 
                         return { key, index: idx, release: () => { this._leased.delete(key); } };
                     }
@@ -3988,6 +3988,18 @@ ${ncxPoints.join('\n')}
                     if (errStr.includes('blocked') || errStr.includes('safety') || errStr.includes('prohibited') || errStr.includes('recitation')) {
                         throw new ContentBlockedError(String(e?.message || e));
                     }
+                    if (errStr.includes('503') || errStr.includes('high demand') || errStr.includes('overloaded')) {
+                        log(`⏳ 503: модель перегружена у Google, ротация ключа ${lease.index + 1}...`, 'warning');
+                        await keyManager.pauseKeyFor(modelConfig.id, apiKey, 12000);
+                        saveState();
+                        await sleep(1000);
+                        continue;
+                    }
+                    if (errStr.includes('failed to fetch') || errStr.includes('network') || errStr.includes('timeout')) {
+                        log(`🌐 Сеть (${lease.index + 1}): сбой связи, пробуем следующий ключ...`, 'warning');
+                        await sleep(1500);
+                        continue;
+                    }
                     if (errStr.includes('429')) {
                         await keyManager.pauseKeyFor(modelConfig.id, apiKey, 60000);
                         saveState();
@@ -4253,7 +4265,11 @@ ${ncxPoints.join('\n')}
                 if (response.status === 401 || response.status === 403) throw new RateLimitExceededError(`Gemini ${response.status}: ${text}`);
                 if (response.status === 429) {
                     const delayMs = extractGeminiRetryDelayMs(text) ?? 60000;
-                    throw new TemporaryRateLimitError(`Gemini 429: temporary limit`, delayMs);
+                    throw new TemporaryRateLimitError(`Gemini 429: временный лимит запросов`, delayMs);
+                }
+                if (response.status === 503 || response.status === 500 || response.status === 502 || response.status === 504) {
+                    // Google high demand / temporary server overload: pause this key for 12s and rotate to next key
+                    throw new TemporaryRateLimitError(`Gemini ${response.status}: высокая нагрузка Google (перегрузка модели), ротация ключа...`, 12000);
                 }
                 const errLower = text.toLowerCase();
                 if (errLower.includes('prohibited') || errLower.includes('safety') || errLower.includes('blocked') || errLower.includes('recitation')) {
