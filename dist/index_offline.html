@@ -2488,7 +2488,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             showToast(enable ? 'Все ключи включены' : 'Все ключи отключены', 'info');
         }
 
-        function resetAllKeyCooldowns(provider = null) {
+        function resetAllKeyStatuses(provider = null) {
             const targetProviders = provider ? [provider] : Object.keys(state.keys);
             let count = 0;
             for (const p of targetProviders) {
@@ -2497,18 +2497,25 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                 for (const key of km.keys) {
                     const modelStatuses = km.keyStatuses[key]?.statusByModel || {};
                     for (const st of Object.values(modelStatuses)) {
-                        if (st.exhaustedLevel === 1 || st.pausedUntil) {
-                            st.exhaustedLevel = 0;
-                            st.pausedUntil = null;
-                            count++;
-                        }
+                        st.exhaustedLevel = 0;
+                        st.pausedUntil = null;
+                        st.exhaustedAt = null;
+                        st.dailyRequests = 0;
+                        st.requests = [];
+                        st.disabled = false;
+                        count++;
                     }
                 }
             }
             saveState();
             renderKeysList();
-            showToast(`Сброшен кулдаун 429 у ${count} записей`, 'success');
-            log(`Ручной сброс кулдаунов 429: разблокировано ${count} записей`, 'info');
+            updateUI();
+            showToast(`Сброшены все лимиты и блокировки (${count} записей)! Все ключи готовы к работе.`, 'success');
+            log(`🔄 Полный сброс блокировок: разблокировано ${count} записей ключей`, 'success');
+        }
+
+        function resetAllKeyCooldowns(provider = null) {
+            return resetAllKeyStatuses(provider);
         }
 
         function removeKey(provider, index) {
@@ -4098,8 +4105,78 @@ ${ncxPoints.join('\n')}
             }
         }
 
+        // =============================================
+        // UNIVERSAL FETCH WITH TIMEOUT (Mobile-safe, cancellation-aware)
+        // =============================================
+        async function fetchWithTimeout(url, options = {}, timeoutMs = 180000) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => {
+                controller.abort(new Error(`Timeout: запрос превысил ${Math.round(timeoutMs / 1000)} сек`));
+            }, timeoutMs);
+
+            const extSignal = options.signal;
+            let onAbort = null;
+            if (extSignal) {
+                if (extSignal.aborted) {
+                    clearTimeout(timer);
+                    controller.abort(extSignal.reason);
+                } else {
+                    onAbort = () => {
+                        clearTimeout(timer);
+                        controller.abort(extSignal.reason);
+                    };
+                    extSignal.addEventListener('abort', onAbort, { once: true });
+                }
+            }
+
+            try {
+                return await fetch(url, { ...options, signal: controller.signal });
+            } finally {
+                clearTimeout(timer);
+                if (extSignal && onAbort) {
+                    try { extSignal.removeEventListener('abort', onAbort); } catch {}
+                }
+            }
+        }
+
         async function callGemini(apiKey, modelConfig, prompt) {
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelConfig.id}:generateContent?key=${apiKey}`;
+
+            const generationConfig = {
+                maxOutputTokens: modelConfig.maxOutputTokens || 65536
+            };
+
+            // Temperature configuration: pass user temperature if specified
+            const userTemp = parseFloat(document.getElementById('temperature-input')?.value);
+            if (!isNaN(userTemp) && userTemp >= 0 && userTemp <= 1.0) {
+                if (modelConfig.supportsTemperature !== false) {
+                    generationConfig.temperature = userTemp;
+                }
+            }
+
+            // Thinking Mode config (matching desktop translatorFork_MOD logic)
+            const thinkingEnabled = document.getElementById('thinking-enabled')?.checked ?? (state.thinkingEnabled ?? true);
+            const userLevel = (document.getElementById('thinking-level-select')?.value || state.thinkingLevel || modelConfig.minThinkingBudget || 'minimal').toLowerCase();
+            const userBudget = parseInt(document.getElementById('thinking-budget-input')?.value || state.thinkingBudget || '-1', 10);
+
+            if (modelConfig.minThinkingBudget !== false) {
+                if (typeof modelConfig.minThinkingBudget === 'string' || modelConfig.thinkingLevel) {
+                    // Level-based thinking (Gemini 3.x Flash: gemini-3.8-flash, gemini-3.5-flash-lite, etc.)
+                    const finalLevel = thinkingEnabled ? userLevel : (modelConfig.minThinkingBudget || 'minimal');
+                    if (finalLevel) {
+                        generationConfig.thinkingConfig = { thinkingLevel: String(finalLevel).toUpperCase() };
+                    }
+                } else {
+                    // Budget-based thinking (Gemini 2.5 Pro, etc.)
+                    const minBudget = (typeof modelConfig.minThinkingBudget === 'number' && modelConfig.minThinkingBudget > 0) ? modelConfig.minThinkingBudget : 0;
+                    if (thinkingEnabled) {
+                        const budget = userBudget === -1 ? -1 : (minBudget > 0 ? Math.max(userBudget, minBudget) : userBudget);
+                        generationConfig.thinkingConfig = { thinkingBudget: budget };
+                    } else {
+                        generationConfig.thinkingConfig = { thinkingBudget: minBudget > 0 ? minBudget : 0 };
+                    }
+                }
+            }
 
             const body = {
                 contents: [{ parts: [{ text: prompt }] }],
@@ -4109,63 +4186,19 @@ ${ncxPoints.join('\n')}
                     { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
                     { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
                 ],
-                generationConfig: { maxOutputTokens: modelConfig.maxOutputTokens }
+                generationConfig
             };
 
             const systemPrompt = document.getElementById('system-prompt')?.value?.trim();
             if (systemPrompt) body.systemInstruction = { parts: [{ text: systemPrompt }] };
 
-            // Thinking Mode config (UI controls with fallback)
-            const thinkingEnabled = document.getElementById('thinking-enabled')?.checked ?? (state.thinkingEnabled ?? true);
-            const userLevel = (document.getElementById('thinking-level-select')?.value || state.thinkingLevel || modelConfig.minThinkingBudget || 'minimal').toLowerCase();
-            const userBudget = parseInt(document.getElementById('thinking-budget-input')?.value || state.thinkingBudget || '-1', 10);
-
-            if (modelConfig.minThinkingBudget !== false) {
-                if (thinkingEnabled) {
-                    if (typeof modelConfig.minThinkingBudget === 'string' || modelConfig.thinkingLevel) {
-                        body.generationConfig.thinkingConfig = { thinkingLevel: userLevel.toUpperCase() };
-                    } else if (typeof modelConfig.minThinkingBudget === 'number' || userBudget >= 0) {
-                        const budget = userBudget > 0 ? userBudget : (typeof modelConfig.minThinkingBudget === 'number' ? modelConfig.minThinkingBudget : 1024);
-                        body.generationConfig.thinkingConfig = { thinkingBudget: budget };
-                    }
-                } else {
-                    // If disabled: minimal thinking if required by model, else budget 0
-                    if (typeof modelConfig.minThinkingBudget === 'string' && modelConfig.minThinkingBudget === 'minimal') {
-                        body.generationConfig.thinkingConfig = { thinkingLevel: 'MINIMAL' };
-                    } else {
-                        body.generationConfig.thinkingConfig = { thinkingBudget: 0 };
-                    }
-                }
-            }
-
-            // Temperature configuration:
-            // Google Gemini API rule: temperature is NOT supported when thinking is enabled!
-            // Only attach temperature if thinking mode is explicitly turned off.
-            if (!thinkingEnabled) {
-                const userTemp = parseFloat(document.getElementById('temperature-input')?.value);
-                if (!isNaN(userTemp) && userTemp >= 0 && userTemp <= 1.0) {
-                    if (modelConfig.supportsTemperature !== false) {
-                        body.generationConfig.temperature = userTemp;
-                    }
-                }
-            }
-
-            // 35-second timeout to prevent indefinite network hanging
-            const fetchTimeout = 35000;
-            const timeoutSignal = (typeof AbortSignal.timeout === 'function') ? AbortSignal.timeout(fetchTimeout) : null;
-            let combinedSignal = state.abortController?.signal;
-            if (timeoutSignal && combinedSignal && typeof AbortSignal.any === 'function') {
-                combinedSignal = AbortSignal.any([combinedSignal, timeoutSignal]);
-            } else if (timeoutSignal && !combinedSignal) {
-                combinedSignal = timeoutSignal;
-            }
-
-            const response = await fetch(url, {
+            // 180s (3-minute) timeout to allow thorough translation without premature aborts
+            const response = await fetchWithTimeout(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
-                signal: combinedSignal
-            });
+                signal: state.abortController?.signal
+            }, 180000);
 
             if (!response.ok) {
                 const text = await response.text();
@@ -4179,33 +4212,13 @@ ${ncxPoints.join('\n')}
                 if (errLower.includes('prohibited') || errLower.includes('safety') || errLower.includes('blocked') || errLower.includes('recitation')) {
                     throw new ContentBlockedError(`Gemini Filter: ${text}`);
                 }
-                if (response.status === 400) {
-                    // Fast retry if error is due to temperature or thinking conflict
-                    if (errLower.includes('temperature') || errLower.includes('thinking')) {
-                        delete body.generationConfig.temperature;
-                        delete body.generationConfig.thinkingConfig;
-                        const retryRes = await fetch(url, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(body),
-                            signal: state.abortController?.signal
-                        });
-                        if (retryRes.ok) {
-                            const retryData = await retryRes.json();
-                            if (retryData.candidates?.[0]?.content?.parts?.[0]?.text) {
-                                return retryData.candidates[0].content.parts[0].text;
-                            }
-                        }
-                    }
-                    throw new Error(`Gemini 400 Bad Request: ${text.slice(0, 140)}`);
-                }
-                throw new NetworkError(`Gemini ${response.status}: ${text.slice(0, 140)}`, 4000);
+                throw new Error(`Gemini ${response.status}: ${text.slice(0, 160)}`);
             }
 
             const data = await response.json();
             if (!data.candidates?.length) {
                 if (data.promptFeedback?.blockReason) throw new ContentBlockedError(data.promptFeedback.blockReason);
-                throw new NetworkError('Gemini: Empty response', 10000);
+                throw new NetworkError('Gemini: Пустой ответ от модели', 5000);
             }
 
             const candidate = data.candidates[0];
@@ -4228,21 +4241,13 @@ ${ncxPoints.join('\n')}
             if (!isNaN(userTemp) && userTemp >= 0 && userTemp <= 1.0) {
                 reqBody.temperature = userTemp;
             }
-            const fetchTimeout = 35000;
-            const timeoutSignal = (typeof AbortSignal.timeout === 'function') ? AbortSignal.timeout(fetchTimeout) : null;
-            let combinedSignal = state.abortController?.signal;
-            if (timeoutSignal && combinedSignal && typeof AbortSignal.any === 'function') {
-                combinedSignal = AbortSignal.any([combinedSignal, timeoutSignal]);
-            } else if (timeoutSignal && !combinedSignal) {
-                combinedSignal = timeoutSignal;
-            }
 
-            const response = await fetch(baseUrl, {
+            const response = await fetchWithTimeout(baseUrl, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify(reqBody),
-                signal: combinedSignal
-            });
+                signal: state.abortController?.signal
+            }, 180000);
 
             if (!response.ok) {
                 const txt = await response.text();
@@ -4253,11 +4258,11 @@ ${ncxPoints.join('\n')}
                     const delayMs = headerDelaySec ? Math.floor(headerDelaySec * 1000) : 20000;
                     throw new TemporaryRateLimitError(`API 429: temporary limit`, delayMs);
                 }
-                throw new NetworkError(`API ${response.status}: ${txt}`, 30000);
+                throw new NetworkError(`API ${response.status}: ${txt}`, 5000);
             }
 
             const data = await response.json();
-            if (!data.choices?.[0]?.message?.content) throw new NetworkError('Empty response', 10000);
+            if (!data.choices?.[0]?.message?.content) throw new NetworkError('Empty response', 5000);
             return data.choices[0].message.content;
         }
 
@@ -7928,8 +7933,33 @@ ${ncxPoints.join('\n')}
         // =============================================
         // INITIALIZATION
         // =============================================
+        function autoHealKeyStatuses() {
+            try {
+                let healed = 0;
+                for (const [provider, km] of Object.entries(state.keys || {})) {
+                    if (!km || !km.keyStatuses) continue;
+                    for (const key of Object.keys(km.keyStatuses)) {
+                        const modelStatuses = km.keyStatuses[key]?.statusByModel || {};
+                        for (const [mId, st] of Object.entries(modelStatuses)) {
+                            // If key was marked exhausted (level 2) by the old rpd:20 bug, restore it!
+                            if (st && st.exhaustedLevel === 2 && (!st.dailyRequests || st.dailyRequests < 1000)) {
+                                st.exhaustedLevel = 0;
+                                st.exhaustedAt = null;
+                                healed++;
+                            }
+                        }
+                    }
+                }
+                if (healed > 0) {
+                    saveState();
+                    console.log(`[AutoHeal] Automatically unblocked ${healed} keys.`);
+                }
+            } catch (e) { console.warn('Auto-heal key statuses error:', e); }
+        }
+
         function initAppV99() {
             loadState();
+            autoHealKeyStatuses();
             loadSettingsFromStorage();
             initProjectFolder();
             populateProviderSelect();
