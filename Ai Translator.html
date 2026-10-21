@@ -1452,7 +1452,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         // =============================================
         class ContentBlockedError extends Error { constructor(message = 'Content blocked') { super(message); this.name = 'ContentBlockedError'; } }
         class AllKeysExhaustedError extends Error { constructor(message = 'All keys exhausted') { super(message); this.name = 'AllKeysExhaustedError'; } }
-        class TemporaryRateLimitError extends Error { constructor(message = 'Temporary rate limit', delayMs = 60000) { super(message); this.name = 'TemporaryRateLimitError'; this.delayMs = delayMs; } }
+        class TemporaryRateLimitError extends Error { constructor(message = 'Temporary rate limit', delayMs = 60000, statusCode = 429) { super(message); this.name = 'TemporaryRateLimitError'; this.delayMs = delayMs; this.statusCode = statusCode; } }
         class RateLimitExceededError extends Error { constructor(message = 'Rate limit exceeded') { super(message); this.name = 'RateLimitExceededError'; } }
         class ModelNotFoundError extends Error { constructor(message = 'Model not found') { super(message); this.name = 'ModelNotFoundError'; } }
         class NetworkError extends Error { constructor(message = 'Network error', delayMs = 30000) { super(message); this.name = 'NetworkError'; this.delayMs = delayMs; } }
@@ -3352,11 +3352,27 @@ ${ncxPoints.join('\n')}
                                     } catch (err) {
                                         const chapter = chaptersToTranslate[i];
                                         if (err instanceof AllKeysExhaustedError) {
-                                            log('⛔ Все ключи исчерпаны! Остановка перевода.', 'error');
-                                            allKeysExhausted = true;
-                                            resultsByIndex[i] = { ...chapter, content };
-                                            showToast('Все ключи исчерпаны', 'error');
-                                            return; // Stop worker immediately
+                                            if (document.getElementById('fallback-google-translate')?.checked) {
+                                                log(`🌐 Все ключи AI временно на паузе/перегружены. Фолбэк главы ${startIdx + i + 1} на Google Web Translate...`, 'info');
+                                                try {
+                                                    const gTrans = await translateWithGoogleWeb(content);
+                                                    resultsByIndex[i] = { ...chapter, content: gTrans, isGoogleFallback: true };
+                                                    await saveChapterResult(resultsByIndex[i]);
+                                                    log(`Глава ${startIdx + i + 1} ✓ (Google Web Fallback)`, 'success');
+                                                } catch (gErr) {
+                                                    log('⛔ Все ключи исчерпаны! Остановка перевода.', 'error');
+                                                    allKeysExhausted = true;
+                                                    resultsByIndex[i] = { ...chapter, content };
+                                                    showToast('Все ключи исчерпаны', 'error');
+                                                    return;
+                                                }
+                                            } else {
+                                                log('⛔ Все ключи исчерпаны! Остановка перевода.', 'error');
+                                                allKeysExhausted = true;
+                                                resultsByIndex[i] = { ...chapter, content };
+                                                showToast('Все ключи исчерпаны', 'error');
+                                                return; // Stop worker immediately
+                                            }
                                         } else if (err instanceof ContentBlockedError) {
                                             log(`🔞 Глава ${startIdx + i + 1}: цензура AI модели`, 'warning');
                                             if (document.getElementById('fallback-google-translate')?.checked) {
@@ -3427,11 +3443,27 @@ ${ncxPoints.join('\n')}
                             }
                         } catch (e) {
                             if (e instanceof AllKeysExhaustedError) {
-                                log('⛔ Все ключи исчерпаны! Остановка перевода.', 'error');
-                                allKeysExhausted = true;
-                                resultsByIndex[idx] = { ...chapter, content };
-                                showToast('Все ключи исчерпаны', 'error');
-                                return; // Stop worker immediately
+                                if (document.getElementById('fallback-google-translate')?.checked) {
+                                    log(`🌐 Все ключи AI временно на паузе/перегружены. Фолбэк главы ${startIdx + idx + 1} на Google Web Translate...`, 'info');
+                                    try {
+                                        const gTrans = await translateWithGoogleWeb(content);
+                                        resultsByIndex[idx] = { ...chapter, content: gTrans, isGoogleFallback: true };
+                                        await saveChapterResult(resultsByIndex[idx]);
+                                        log(`Глава ${startIdx + idx + 1} ✓ (Google Web Fallback)`, 'success');
+                                    } catch (gErr) {
+                                        log('⛔ Все ключи исчерпаны! Остановка перевода.', 'error');
+                                        allKeysExhausted = true;
+                                        resultsByIndex[idx] = { ...chapter, content };
+                                        showToast('Все ключи исчерпаны', 'error');
+                                        return;
+                                    }
+                                } else {
+                                    log('⛔ Все ключи исчерпаны! Остановка перевода.', 'error');
+                                    allKeysExhausted = true;
+                                    resultsByIndex[idx] = { ...chapter, content };
+                                    showToast('Все ключи исчерпаны', 'error');
+                                    return; // Stop worker immediately
+                                }
                             } else if (e instanceof ContentBlockedError) {
                                 log(`🔞 Глава ${startIdx + idx + 1}: цензура AI модели`, 'warning');
                                 if (document.getElementById('fallback-google-translate')?.checked) {
@@ -3887,6 +3919,7 @@ ${ncxPoints.join('\n')}
             return poolCooldownPromise;
         }
 
+        let consecutive503Count = 0;
         async function callAI(prompt) {
             const provider = state.provider;
             const providerConfig = PROVIDERS_CONFIG[provider];
@@ -3960,11 +3993,21 @@ ${ncxPoints.join('\n')}
                     if (e instanceof ContentBlockedError) throw e;
 
                     if (e instanceof TemporaryRateLimitError) {
-                        log(`⏳ 429: пауза ключа ${lease.index + 1} на ${Math.ceil(e.delayMs / 1000)}с`, 'warning');
+                        const code = e.statusCode || 429;
+                        const waitSec = Math.ceil(e.delayMs / 1000);
+                        if (code === 503 || code === 500 || code === 502 || code === 504) {
+                            consecutive503Count++;
+                            log(`⏳ Сервер Google перегружен (${code}): пауза ключа ${lease.index + 1} на ${waitSec}с...`, 'warning');
+                            if (consecutive503Count >= 3) {
+                                log(`💡 Подсказка: модель «${state.model}» перегружена у Google (503). Переключитесь во вкладке «Настройки» на «Gemini 3.5 Flash-Lite» для быстрой работы без очередей!`, 'info');
+                            }
+                        } else {
+                            consecutive503Count = 0;
+                            log(`⏳ 429 (лимит запросов): пауза ключа ${lease.index + 1} на ${waitSec}с`, 'warning');
+                        }
                         await keyManager.pauseKeyFor(modelConfig.id, apiKey, e.delayMs);
                         saveState();
-                        // Stagger backoff before attempting next key to let rate limiters breathe
-                        await sleep(2500);
+                        await sleep(1500);
                         continue;
                     }
 
@@ -4265,11 +4308,11 @@ ${ncxPoints.join('\n')}
                 if (response.status === 401 || response.status === 403) throw new RateLimitExceededError(`Gemini ${response.status}: ${text}`);
                 if (response.status === 429) {
                     const delayMs = extractGeminiRetryDelayMs(text) ?? 60000;
-                    throw new TemporaryRateLimitError(`Gemini 429: временный лимит запросов`, delayMs);
+                    throw new TemporaryRateLimitError(`Gemini 429: временный лимит запросов`, delayMs, 429);
                 }
                 if (response.status === 503 || response.status === 500 || response.status === 502 || response.status === 504) {
                     // Google high demand / temporary server overload: pause this key for 12s and rotate to next key
-                    throw new TemporaryRateLimitError(`Gemini ${response.status}: высокая нагрузка Google (перегрузка модели), ротация ключа...`, 12000);
+                    throw new TemporaryRateLimitError(`Gemini ${response.status}: перегрузка сервера Google (высокий спрос на модель)`, 12000, response.status);
                 }
                 const errLower = text.toLowerCase();
                 if (errLower.includes('prohibited') || errLower.includes('safety') || errLower.includes('blocked') || errLower.includes('recitation')) {
