@@ -1004,13 +1004,16 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                     </div>
                 </div>
 
-                <div class="bg-white/5 rounded-xl p-4 border border-white/10">
-                    <div class="text-sm text-gray-300 flex items-center gap-2 mb-2"><i class="fas fa-info-circle"></i> Примечание</div>
-                    <ul class="text-sm text-gray-400 list-disc pl-5 space-y-1">
-                        <li>Это web‑упрощение desktop‑диалога <code class="bg-white/10 px-1 rounded">ai_generation.py</code>.</li>
-                        <li>Для лучшего качества используйте 1–3 главы и включённые примечания.</li>
-                        <li>Результат должен быть JSON формата <code class="bg-white/10 px-1 rounded">{"Term": {"translation":"…","note":"…"}}</code>.</li>
-                    </ul>
+                <div class="bg-black/40 rounded-xl p-4 border border-white/10">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="text-sm text-gray-300 flex items-center gap-2 font-medium">
+                            <i class="fas fa-terminal text-indigo-400"></i> Журнал генерации
+                        </div>
+                        <button onclick="document.getElementById('gg-log-container').innerHTML = '<div class=\'text-gray-500\'>Журнал очищен</div>'" class="text-xs text-gray-400 hover:text-white transition">Очистить</button>
+                    </div>
+                    <div id="gg-log-container" class="font-mono text-xs text-gray-300 h-32 overflow-y-auto space-y-1.5 p-3 bg-black/50 rounded-lg border border-white/5">
+                        <div class="text-gray-500">Здесь в реальном времени отображается ход генерации по пакетам глав...</div>
+                    </div>
                 </div>
             </div>
 
@@ -2375,8 +2378,16 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             log(`Добавлено ключей для ${PROVIDERS_CONFIG[provider].displayName}`, 'success');
         }
 
+                let isUserInteractingWithKeys = false;
+        let lastUserInteractionTimer = null;
+
         function renderKeysList() {
             const container = document.getElementById('keys-list');
+            if (!container) return;
+
+            // Do not disturb user while they are actively touching, scrolling, or picking keys!
+            if (isUserInteractingWithKeys) return;
+
             let html = '';
             const currentModelId = (state.provider && state.model) ? (PROVIDERS_CONFIG[state.provider]?.models?.[state.model]?.id || state.model) : 'default';
 
@@ -2404,14 +2415,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                                 <button onclick="selectAllKeys(false, '${provider}')" class="text-xs px-2 py-1 bg-white/5 hover:bg-white/10 text-gray-300 rounded transition" title="Отключить все ключи этого провайдера">Снять</button>
                             </div>
                         </div>
-                        <div class="p-3 space-y-2 max-h-[460px] overflow-y-auto">
+                        <div class="p-3 space-y-2 max-h-[460px] overflow-y-auto key-scroll-container">
                             ${km.keys.map((key, idx) => {
-                                const isLocal = !!config.local;
+                                const isLocal = __omp_shell("!config.local;")
                                 const label = isLocal ? '(local / no key)' : `${key.slice(0, 10)}...${key.slice(-4)}`;
                                 const status = km._getStatusForModel(key, providerModelId);
                                 km._normalizeAvailability(status);
 
-                                const isEnabled = !status.disabled;
+                                const isEnabled = __omp_shell("status.disabled;")
                                 const reqCount = status.dailyRequests || (status.requests ? status.requests.length : 0);
 
                                 let statusBadge = '';
@@ -2457,7 +2468,43 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                     </div>
                 `;
             }
-            container.innerHTML = html || '<p class="text-gray-400 text-center py-8">Нет сохранённых ключей</p>';
+
+            const finalHtml = html || '<p class="text-gray-400 text-center py-8">Нет сохранённых ключей</p>';
+
+            // If HTML hasn't changed at all, avoid touching DOM
+            if (container.dataset.renderedHtml === finalHtml) {
+                return;
+            }
+
+            // Save scroll positions
+            const scrollTops = [];
+            container.querySelectorAll('.key-scroll-container').forEach(el => {
+                scrollTops.push(el.scrollTop);
+            });
+
+            container.innerHTML = finalHtml;
+            container.dataset.renderedHtml = finalHtml;
+
+            // Restore scroll positions immediately
+            const newContainers = container.querySelectorAll('.key-scroll-container');
+            scrollTops.forEach((top, idx) => {
+                if (newContainers[idx]) newContainers[idx].scrollTop = top;
+            });
+
+            // Prevent auto-refresh from disrupting user interaction while scrolling or touching
+            newContainers.forEach(el => {
+                const onInteract = () => {
+                    isUserInteractingWithKeys = true;
+                    if (lastUserInteractionTimer) clearTimeout(lastUserInteractionTimer);
+                    lastUserInteractionTimer = setTimeout(() => {
+                        isUserInteractingWithKeys = false;
+                    }, 4000);
+                };
+                el.addEventListener('scroll', onInteract, { passive: true });
+                el.addEventListener('touchstart', onInteract, { passive: true });
+                el.addEventListener('touchmove', onInteract, { passive: true });
+                el.addEventListener('mousedown', onInteract, { passive: true });
+            });
         }
 
         function toggleKeyEnabled(provider, index) {
@@ -7268,6 +7315,33 @@ ${ncxPoints.join('\n')}
             showToast('Остановка генерации...', 'warning');
         }
 
+        // Logging specifically for the Glossary Generator modal window
+        function logGlossary(msg, type = 'info') {
+            log(msg, type); // also update main page log
+            const container = document.getElementById('gg-log-container');
+            if (!container) return;
+
+            const time = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            let color = 'text-gray-300';
+            let icon = '<i class="fas fa-info-circle text-blue-400"></i>';
+            if (type === 'success') {
+                color = 'text-emerald-300';
+                icon = '<i class="fas fa-check-circle text-emerald-400"></i>';
+            } else if (type === 'warning') {
+                color = 'text-yellow-300';
+                icon = '<i class="fas fa-exclamation-triangle text-yellow-400"></i>';
+            } else if (type === 'error') {
+                color = 'text-red-400';
+                icon = '<i class="fas fa-times-circle text-red-400"></i>';
+            }
+
+            const div = document.createElement('div');
+            div.className = `flex items-start gap-1.5 ${color} leading-tight`;
+            div.innerHTML = `<span class="text-gray-500 text-[11px] font-mono flex-shrink-0">[${time}]</span> <span class="flex-shrink-0 text-[11px]">${icon}</span> <span>${escapeHtml(msg)}</span>`;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
         async function glossaryGeneratorRun() {
             if (isGlossaryGenerating) return;
             if (!state.provider || !state.model) {
@@ -7314,13 +7388,15 @@ ${ncxPoints.join('\n')}
             state.abortController = new AbortController();
 
             let totalNewTerms = 0;
-            log(`▶️ Старт последовательной генерации глоссария: главы ${from}–${to} (${batches.length} пакетов по ${batchSize} глав)`, 'info');
+            const ggLog = document.getElementById('gg-log-container');
+            if (ggLog) ggLog.innerHTML = '';
+            logGlossary(`▶️ Старт генерации: главы ${from}–${to} (${batches.length} пакетов по ${batchSize} глав)`, 'info');
             showToast(`Запуск генерации: ${batches.length} пакетов`, 'info');
 
             try {
                 for (let bIdx = 0; bIdx < batches.length; bIdx++) {
                     if (cancelGlossaryRequested) {
-                        log('⏹️ Генерация глоссария остановлена пользователем', 'warning');
+                        logGlossary('⏹️ Генерация глоссария остановлена пользователем', 'warning');
                         showToast('Генерация остановлена', 'warning');
                         break;
                     }
@@ -7331,7 +7407,7 @@ ${ncxPoints.join('\n')}
                     if (progressStatus) progressStatus.textContent = `Пакет ${bIdx + 1}/${batches.length}: главы ${batch.start}–${batch.end}...`;
                     if (progressCount) progressCount.textContent = `${bIdx + 1}/${batches.length}`;
 
-                    log(`[Глоссарий] Пакет ${bIdx + 1}/${batches.length} (главы ${batch.start}–${batch.end})...`, 'info');
+                    logGlossary(`[Пакет ${bIdx + 1}/${batches.length}] Главы ${batch.start}–${batch.end}: сборка и отправка...`, 'info');
 
                     const { combinedText } = await glossaryGeneratorCollectTextFromChapters(batch.start, batch.end);
                     if (!combinedText.trim()) continue;
@@ -7374,14 +7450,14 @@ ${ncxPoints.join('\n')}
                                 const addedThisBatch = Math.max(0, afterCount - beforeCount);
                                 totalNewTerms += addedThisBatch;
 
-                                log(`[Глоссарий] Пакет ${bIdx + 1}/${batches.length} ✓: получено ${newTermsCount} терминов (+${addedThisBatch} новых)`, 'success');
+                                logGlossary(`[Пакет ${bIdx + 1}/${batches.length}] ✓ Получено ${newTermsCount} терминов (+${addedThisBatch} новых в глоссарий)`, 'success');
                             } else {
-                                log(`[Глоссарий] Пакет ${bIdx + 1}/${batches.length} ✓: получено ${newTermsCount} терминов (в окне результата)`, 'success');
+                                logGlossary(`[Пакет ${bIdx + 1}/${batches.length}] ✓ Получено ${newTermsCount} терминов (в окне результата)`, 'success');
                             }
                         }
                     } catch (e) {
                         if (e instanceof OperationCancelledError || cancelGlossaryRequested) break;
-                        log(`[Глоссарий] Ошибка пакета ${bIdx + 1}: ${e.message}`, 'error');
+                        logGlossary(`[Пакет ${bIdx + 1}] ⚠️ Ошибка: ${e.message}`, 'error');
                     }
 
                     // Delay between batches to respect RPM
@@ -7393,7 +7469,7 @@ ${ncxPoints.join('\n')}
                 if (progressBar) progressBar.style.width = '100%';
                 if (progressCount) progressCount.textContent = `${batches.length}/${batches.length}`;
                 showToast(`Генерация завершена! Всего терминов в глоссарии: ${Object.keys(state.glossary || {}).length}`, 'success');
-                log(`🎉 AI‑генерация глоссария завершена! Добавлено ${totalNewTerms} терминов. Всего: ${Object.keys(state.glossary || {}).length}`, 'success');
+                logGlossary(`🎉 Генерация завершена! Добавлено ${totalNewTerms} терминов. Всего в словаре: ${Object.keys(state.glossary || {}).length}`, 'success');
 
             } finally {
                 isGlossaryGenerating = false;
