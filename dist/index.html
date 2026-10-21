@@ -2417,12 +2417,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
                         </div>
                         <div class="p-3 space-y-2 max-h-[460px] overflow-y-auto key-scroll-container">
                             ${km.keys.map((key, idx) => {
-                                const isLocal = __omp_shell("!config.local;")
+                                const isLocal = Boolean(config && config.local);
                                 const label = isLocal ? '(local / no key)' : `${key.slice(0, 10)}...${key.slice(-4)}`;
                                 const status = km._getStatusForModel(key, providerModelId);
                                 km._normalizeAvailability(status);
 
-                                const isEnabled = __omp_shell("status.disabled;")
+                                const isEnabled = !status.disabled;
                                 const reqCount = status.dailyRequests || (status.requests ? status.requests.length : 0);
 
                                 let statusBadge = '';
